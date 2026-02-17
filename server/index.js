@@ -1,13 +1,12 @@
 import express from "express";
 import cors from "cors";
-import dotenv from "dotenv";
+//import dotenv from "dotenv";
 import OpenAI from "openai";
 import path from "path";
 import { fileURLToPath } from "url";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-
 dotenv.config({ path: path.resolve(__dirname, "../.env") });
 
 // Отладка: проверяем, загрузился ли ключ
@@ -18,12 +17,18 @@ console.log("Путь к .env:", path.resolve(__dirname, "../.env"));
 const app = express();
 const PORT = 5000;
 
-app.use(cors());
+app.use(cors({
+    origin: "*",
+    methods: ["GET", "POST"],
+    allowedHeaders: ["Content-Type"]
+  }));
+  
 app.use(express.json({ limit: "10mb" }));
 
 const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+    apiKey: process.env.OPENAI_API_KEY,
+  });
+  
 
 app.post("/analyze", async (req, res) => {
   try {
