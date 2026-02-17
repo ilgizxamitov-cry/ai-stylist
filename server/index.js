@@ -1,6 +1,6 @@
 import express from "express";
 import cors from "cors";
-//import dotenv from "dotenv";
+import dotenv from "dotenv";
 import OpenAI from "openai";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -15,7 +15,7 @@ console.log("OPENAI_API_KEY:", process.env.OPENAI_API_KEY ? "✅ найден" :
 console.log("Путь к .env:", path.resolve(__dirname, "../.env"));
 
 const app = express();
-const PORT = 5000;
+const PORT = process.env.PORT || 5000;
 
 app.use(cors({
     origin: "*",
