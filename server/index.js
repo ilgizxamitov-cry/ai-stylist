@@ -18,10 +18,14 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 app.use(cors({
-    origin: "*",
-    methods: ["GET", "POST"],
+    origin: [
+        "http://localhost:5173",
+        "https://ai-stylist-production-7f72.up.railway.app"
+      ],
+    methods: ["GET", "POST", "OPTIONS"],
     allowedHeaders: ["Content-Type"]
   }));
+  app.options("*", cors());
   
 app.use(express.json({ limit: "10mb" }));
 
