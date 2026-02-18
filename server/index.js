@@ -18,15 +18,11 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 app.use(cors({
-    origin: [
-        "http://localhost:5173",
-        "https://ai-stylist-production-7f72.up.railway.app"
-      ],
-    methods: ["GET", "POST", "OPTIONS"],
-    allowedHeaders: ["Content-Type"]
-  }));
-  app.options("*", cors());
-  
+  origin: true,
+  methods: ["GET", "POST", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+}));
+
 app.use(express.json({ limit: "10mb" }));
 
 const openai = new OpenAI({
