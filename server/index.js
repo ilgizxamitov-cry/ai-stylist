@@ -57,6 +57,6 @@ app.post("/analyze", async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
+app.listen(PORT, "0.0.0.0", ()) => {
   console.log(`AI Stylist AI server запущен на порту ${PORT}`);
 });
