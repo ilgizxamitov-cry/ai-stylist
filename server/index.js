@@ -89,6 +89,42 @@ app.post("/analyze", async (req, res) => {
   }
 });
 
+app.post("/wardrobe", async (req, res) => {
+    try {
+      const { user_id, category, color, season, occasion } = req.body;
+  
+      const result = await pool.query(
+        `INSERT INTO wardrobe_items (user_id, category, color, season, occasion)
+         VALUES ($1, $2, $3, $4, $5)
+         RETURNING *`,
+        [user_id, category, color, season, occasion]
+      );
+  
+      res.json(result.rows[0]);
+    } catch (error) {
+      console.error("Error inserting wardrobe item:", error);
+      res.status(500).json({ error: "Failed to add item" });
+    }
+  });
+
+  
+  app.get("/wardrobe/:user_id", async (req, res) => {
+    try {
+      const { user_id } = req.params;
+  
+      const result = await pool.query(
+        `SELECT * FROM wardrobe_items WHERE user_id = $1 ORDER BY created_at DESC`,
+        [user_id]
+      );
+  
+      res.json(result.rows);
+    } catch (error) {
+      console.error("Error fetching wardrobe:", error);
+      res.status(500).json({ error: "Failed to fetch wardrobe" });
+    }
+  });
+  
+
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`AI Stylist AI server запущен на порту ${PORT}`);
 });
