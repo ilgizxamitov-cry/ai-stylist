@@ -22,6 +22,21 @@ pool.query("SELECT NOW()")
     console.error("🔴 DB connection error:", err);
   });
 
+  pool.query(`
+    CREATE TABLE IF NOT EXISTS wardrobe_items (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL,
+      category VARCHAR(50) NOT NULL,
+      color VARCHAR(50),
+      season VARCHAR(50),
+      occasion VARCHAR(100),
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `)
+  .then(() => console.log("🟢 wardrobe_items table ready"))
+  .catch(err => console.error("🔴 Table creation error:", err));
+  
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 dotenv.config({ path: path.resolve(__dirname, "../.env") });
