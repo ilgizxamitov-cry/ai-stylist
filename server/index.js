@@ -4,6 +4,23 @@ import dotenv from "dotenv";
 import OpenAI from "openai";
 import path from "path";
 import { fileURLToPath } from "url";
+import pkg from "pg";
+const { Pool } = pkg;
+
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: {
+    rejectUnauthorized: false,
+  },
+});
+
+pool.query("SELECT NOW()")
+  .then(res => {
+    console.log("🟢 DB connected:", res.rows[0]);
+  })
+  .catch(err => {
+    console.error("🔴 DB connection error:", err);
+  });
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
