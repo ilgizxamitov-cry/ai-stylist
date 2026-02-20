@@ -38,26 +38,45 @@ function App() {
   // 2. Инициализация кнопки Google (с интервалом для надежности на Vercel)
   useEffect(() => {
     const initGoogleAuth = () => {
+      // Проверяем, загружен ли скрипт и есть ли ID
+      const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+      
+      if (!clientId) {
+        console.error("❌ ОШИБКА: VITE_GOOGLE_CLIENT_ID не найден в переменных окружения!");
+        return;
+      }
+  
       if (window.google?.accounts?.id) {
+        console.log("✅ Скрипт Google найден, инициализируем кнопку...");
+        
         window.google.accounts.id.initialize({
-          client_id: GOOGLE_CLIENT_ID,
+          client_id: clientId,
           callback: handleGoogleLogin,
         });
-        window.google.accounts.id.renderButton(
-          document.getElementById("googleSignInDiv"),
-          { theme: "outline", size: "large", width: 250 }
-        );
+  
+        const buttonDiv = document.getElementById("googleSignInDiv");
+        if (buttonDiv) {
+          window.google.accounts.id.renderButton(buttonDiv, { 
+            theme: "outline", 
+            size: "large",
+            width: 250
+          });
+        } else {
+          console.error("❌ ОШИБКА: Див 'googleSignInDiv' не найден в DOM!");
+        }
       }
     };
-
+  
+    // Пробуем инициализировать каждые 500мс, пока не получится
     const interval = setInterval(() => {
-      if (window.google) {
+      if (window.google?.accounts?.id) {
         initGoogleAuth();
         clearInterval(interval);
       }
     }, 500);
+  
     return () => clearInterval(interval);
-  }, [user]);
+  }, [token]);
 
   // --- Функции-обработчики ---
 
