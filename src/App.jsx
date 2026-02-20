@@ -56,6 +56,8 @@ function App() {
   
         const buttonDiv = document.getElementById("googleSignInDiv");
         if (buttonDiv) {
+
+      
           window.google.accounts.id.renderButton(buttonDiv, { 
             theme: "outline", 
             size: "large",
