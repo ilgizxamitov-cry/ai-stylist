@@ -1,103 +1,83 @@
 import React, { useState, useEffect } from "react";
 
-// Используем переменные окружения для гибкости и безопасности
 const API_URL = import.meta.env.VITE_API_URL || "https://ai-stylist-production-7f72.up.railway.app";
-const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 
 function App() {
-  // --- Состояния ---
   const [user, setUser] = useState(null);
   const [token, setToken] = useState(localStorage.getItem("token"));
   const [wardrobe, setWardrobe] = useState([]);
   
-  // Состояние формы (единый объект для удобства расширения)
+  // Расширенное состояние для сбора "умных" данных
   const [item, setItem] = useState({
-    category: "",
-    color: "",
-    season: "",
-    occasion: "",
-    price: ""
+    category: "Top",
+    subcategory: "",
+    color_primary: "",
+    material: "",
+    style: "Casual",
+    price: "",
+    seasons: "", // Будем вводить через запятую и превращать в массив
+    occasions: ""
   });
 
-  const [selectedImage, setSelectedImage] = useState(null);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
 
-  // --- Эффекты ---
-
-  // 1. Проверка сессии при загрузке
   useEffect(() => {
     const savedUser = localStorage.getItem("user");
     if (token && savedUser) {
-      const parsedUser = JSON.parse(savedUser);
-      setUser(parsedUser);
-      fetchWardrobe(parsedUser.id);
+      setUser(JSON.parse(savedUser));
+      fetchWardrobe();
     }
   }, [token]);
 
-  // 2. Инициализация кнопки Google (с интервалом для надежности на Vercel)
-  useEffect(() => {
-    const initGoogleAuth = () => {
-      // Проверяем, загружен ли скрипт и есть ли ID
-      const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
-      
-      if (!clientId) {
-        console.error("❌ ОШИБКА: VITE_GOOGLE_CLIENT_ID не найден в переменных окружения!");
-        return;
-      }
-  
-      if (window.google?.accounts?.id) {
-        console.log("✅ Скрипт Google найден, инициализируем кнопку...");
-        
-        window.google.accounts.id.initialize({
-          client_id: clientId,
-          callback: handleGoogleLogin,
-        });
-  
-        const buttonDiv = document.getElementById("googleSignInDiv");
-        if (buttonDiv) {
-
-      
-          window.google.accounts.id.renderButton(buttonDiv, { 
-            theme: "outline", 
-            size: "large",
-            width: 250
-          });
-        } else {
-          console.error("❌ ОШИБКА: Див 'googleSignInDiv' не найден в DOM!");
-        }
-      }
-    };
-  
-    // Пробуем инициализировать каждые 500мс, пока не получится
-    const interval = setInterval(() => {
-      if (window.google?.accounts?.id) {
-        initGoogleAuth();
-        clearInterval(interval);
-      }
-    }, 500);
-  
-    return () => clearInterval(interval);
-  }, [token]);
-
-  // --- Функции-обработчики ---
-
-  const handleGoogleLogin = async (response) => {
+  const fetchWardrobe = async () => {
     try {
-      const res = await fetch(`${API_URL}/auth/google`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ credential: response.credential }),
+      const res = await fetch(`${API_URL}/wardrobe`, {
+        headers: { Authorization: `Bearer ${token}` }
       });
       const data = await res.json();
-      if (data.token) {
-        localStorage.setItem("token", data.token);
-        localStorage.setItem("user", JSON.stringify(data.user));
-        setToken(data.token);
-        setUser(data.user);
+      setWardrobe(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error("Ошибка загрузки:", err);
+    }
+  };
+
+  const handleAddItem = async (e) => {
+    e.preventDefault();
+    if (!item.category || !user) return;
+    setLoading(true);
+
+    try {
+      const res = await fetch(`${API_URL}/wardrobe`, {
+        method: "POST",
+        headers: { 
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}` 
+        },
+        body: JSON.stringify({
+          ...item,
+          purchase_price: parseFloat(item.price) || 0,
+          // Превращаем строки в массивы для БД
+          seasons: item.seasons.split(",").map(s => s.trim()).filter(s => s !== ""),
+          occasions: item.occasions.split(",").map(o => o.trim()).filter(o => o !== "")
+        }),
+      });
+
+      const data = await res.json();
+
+      if (res.status === 403) {
+        alert(`⛔ Лимит: ${data.error}`);
+        return;
+      }
+
+      if (res.ok) {
+        setItem({ category: "Top", subcategory: "", color_primary: "", material: "", style: "Casual", price: "", seasons: "", occasions: "" });
+        fetchWardrobe();
       }
     } catch (err) {
-      console.error("Login error:", err);
+      console.error("Add item error:", err);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -109,85 +89,13 @@ function App() {
     setWardrobe([]);
   };
 
-  const handleChange = (e) => {
-    const { name, value } = e.target;
-    setItem(prev => ({ ...prev, [name]: value }));
-  };
-
-  const fetchWardrobe = async (userId) => {
-    if (!userId) return;
-    try {
-      const res = await fetch(`${API_URL}/wardrobe/${userId}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      const data = await res.json();
-      setWardrobe(Array.isArray(data) ? data : []);
-    } catch (err) {
-      console.error("Fetch wardrobe error:", err);
-    }
-  };
-
-  const handleAddItem = async (e) => {
-    if (e) e.preventDefault();
-    if (!item.category || !user) return;
-
-    try {
-      const res = await fetch(`${API_URL}/wardrobe`, {
-        method: "POST",
-        headers: { 
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}` 
-        },
-        body: JSON.stringify({
-          user_id: user.id,
-          category: item.category,
-          color: item.color,
-          season: item.season,
-          occasion: item.occasion,
-          purchase_price: parseFloat(item.price) || 0
-        }),
-      });
-
-      if (res.ok) {
-        setItem({ category: "", color: "", season: "", occasion: "", price: "" });
-        fetchWardrobe(user.id);
-      }
-    } catch (err) {
-      console.error("Add item error:", err);
-    }
-  };
-
-  const handleAnalyze = async () => {
-    if (!selectedImage || loading) return;
-    setLoading(true);
-    
-    const formData = new FormData();
-    formData.append("image", selectedImage);
-
-    try {
-      const res = await fetch(`${API_URL}/analyze`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
-        body: formData,
-      });
-      const data = await res.json();
-      setResult(data);
-    } catch (err) {
-      console.error("Analyze error:", err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // --- Рендеринг интерфейса ---
-
   if (!token) {
     return (
       <div style={containerStyle}>
         <div style={cardStyle}>
-          <h1 style={{ textAlign: "center" }}>AI Stylist</h1>
-          <p style={{ textAlign: "center", opacity: 0.7 }}>Ваш персональный ИИ-ассистент</p>
-          <div id="googleSignInDiv" style={{ display: 'flex', justifyContent: 'center', marginTop: '20px' }}></div>
+          <h1 style={{ textAlign: "center", marginBottom: "10px" }}>AI Stylist Pro</h1>
+          <p style={{ textAlign: "center", opacity: 0.7, marginBottom: "30px" }}>Управление гардеробом нового поколения</p>
+          <div id="googleSignInDiv" style={{ display: 'flex', justifyContent: 'center' }}></div>
         </div>
       </div>
     );
@@ -195,75 +103,76 @@ function App() {
 
   return (
     <div style={containerStyle}>
-      {/* Шапка профиля */}
+      {/* Профессиональная шапка */}
       <div style={profileHeaderStyle}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           {user?.picture && <img src={user.picture} alt="Avatar" style={avatarStyle} />}
           <div>
             <p style={{ margin: 0, fontWeight: 600 }}>{user?.name}</p>
-            <p style={{ margin: 0, fontSize: '12px', opacity: 0.6 }}>{user?.email}</p>
+            <p style={tierBadgeStyle}>{user?.subscription_tier || 'free'} plan</p>
           </div>
         </div>
         <button onClick={handleLogout} style={logoutButtonStyle}>Выйти</button>
       </div>
 
-      {/* Блок анализа образа */}
+      {/* Форма добавления: Инженерный подход */}
       <div style={cardStyle}>
-        <h3>Анализ образа</h3>
-        <input type="file" accept="image/*" onChange={(e) => setSelectedImage(e.target.files[0])} />
-        {selectedImage && <img src={URL.createObjectURL(selectedImage)} alt="Preview" style={previewStyle} />}
-        <button 
-          onClick={handleAnalyze} 
-          disabled={!selectedImage || loading} 
-          style={buttonStyle(!selectedImage || loading)}
-        >
-          {loading ? "Анализируем..." : "Анализировать"}
-        </button>
-        {result && (
-          <div style={resultBoxStyle}>
-            <p><strong>Вердикт:</strong> {result.verdict}</p>
-          </div>
-        )}
-      </div>
-
-      {/* Форма добавления в гардероб */}
-      <div style={cardStyle}>
-        <h3>Добавить вещь</h3>
+        <h3 style={{ marginBottom: "15px" }}>Оцифровать вещь</h3>
         <form onSubmit={handleAddItem} style={formStyle}>
-          <input name="category" placeholder="Категория" value={item.category} onChange={handleChange} style={inputStyle} required />
-          <input name="color" placeholder="Цвет" value={item.color} onChange={handleChange} style={inputStyle} />
-          <input name="price" type="number" placeholder="Цена покупки" value={item.price} onChange={handleChange} style={inputStyle} />
-          <button type="submit" style={buttonStyle(false)}>Сохранить в базу</button>
+          <select 
+            value={item.category} 
+            onChange={e => setItem({...item, category: e.target.value})} 
+            style={inputStyle}
+          >
+            <option value="Top">Верх (Топ/Худи)</option>
+            <option value="Bottom">Низ (Брюки/Джинсы)</option>
+            <option value="Shoes">Обувь</option>
+            <option value="Outwear">Верхняя одежда</option>
+          </select>
+          
+          <input placeholder="Подкатегория (напр. Свитшот)" value={item.subcategory} onChange={e => setItem({...item, subcategory: e.target.value})} style={inputStyle} />
+          <input placeholder="Материал (напр. Хлопок 100%)" value={item.material} onChange={e => setItem({...item, material: e.target.value})} style={inputStyle} />
+          <input placeholder="Основной цвет" value={item.color_primary} onChange={e => setItem({...item, color_primary: e.target.value})} style={inputStyle} />
+          <input placeholder="Цена покупки" type="number" value={item.price} onChange={e => setItem({...item, price: e.target.value})} style={inputStyle} />
+          <input placeholder="Сезоны (через запятую)" value={item.seasons} onChange={e => setItem({...item, seasons: e.target.value})} style={inputStyle} />
+          
+          <button type="submit" disabled={loading} style={buttonStyle(loading)}>
+            {loading ? "Сохранение..." : "Добавить в базу"}
+          </button>
         </form>
       </div>
 
-      {/* Список вещей */}
+      {/* Сетка гардероба с CPW */}
       <div style={cardStyle}>
-        <h3>Мой шкаф ({wardrobe.length})</h3>
-        <ul style={{ listStyle: 'none', padding: 0 }}>
+        <h3 style={{ marginBottom: "15px" }}>Мой шкаф ({wardrobe.length})</h3>
+        <div style={gridStyle}>
           {wardrobe.map(i => (
-            <li key={i.id} style={listItemStyle}>
-              <span>{i.category} ({i.color})</span>
-              <span style={{ color: '#00e6b8' }}>{i.purchase_price} ₽</span>
-            </li>
+            <div key={i.id} style={itemCardStyle}>
+              <span style={{ fontWeight: "bold" }}>{i.subcategory || i.category}</span>
+              <span style={{ fontSize: "12px", opacity: 0.7 }}>{i.material} | {i.color_primary}</span>
+              <div style={cpwTagStyle}>
+                CPW: {i.cpw ? `${Math.round(i.cpw)} ₽` : `${i.purchase_price} ₽`}
+              </div>
+            </div>
           ))}
-        </ul>
+        </div>
       </div>
     </div>
   );
 }
 
-// --- Стили ---
+// --- Улучшенные стили для стартапа ---
 const containerStyle = { minHeight: "100vh", padding: "20px", backgroundColor: "#0b0c10", color: "#fff", fontFamily: "system-ui, sans-serif" };
-const cardStyle = { background: "#151822", padding: "20px", borderRadius: "12px", marginBottom: "20px", maxWidth: "500px", margin: "0 auto 20px" };
-const profileHeaderStyle = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', maxWidth: "500px", margin: "0 auto 20px", background: "#151822", padding: "10px 20px", borderRadius: "12px" };
+const cardStyle = { background: "#151822", padding: "20px", borderRadius: "16px", marginBottom: "20px", maxWidth: "500px", margin: "0 auto 20px", border: "1px solid #222" };
+const profileHeaderStyle = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', maxWidth: "500px", margin: "0 auto 20px", background: "#151822", padding: "12px 20px", borderRadius: "16px" };
 const avatarStyle = { width: '40px', height: '40px', borderRadius: '50%', border: '2px solid #00e6b8' };
-const logoutButtonStyle = { background: "#ff4d4d", color: "#fff", border: "none", padding: "8px 12px", borderRadius: "6px", cursor: "pointer" };
-const inputStyle = { padding: "10px", borderRadius: "6px", border: "1px solid #333", background: "#0b0c10", color: "#fff" };
-const formStyle = { display: 'flex', flexDirection: 'column', gap: '10px' };
-const buttonStyle = (disabled) => ({ padding: "12px", borderRadius: "6px", border: "none", background: disabled ? "#444" : "#00e6b8", color: "#000", fontWeight: "bold", cursor: disabled ? "not-allowed" : "pointer", marginTop: "10px" });
-const previewStyle = { width: "100%", borderRadius: "8px", marginTop: "10px" };
-const resultBoxStyle = { marginTop: "15px", padding: "10px", borderTop: "1px solid #333" };
-const listItemStyle = { display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderBottom: '1px solid #222' };
+const tierBadgeStyle = { margin: 0, fontSize: '10px', textTransform: 'uppercase', color: '#00e6b8', letterSpacing: '1px' };
+const logoutButtonStyle = { background: "none", color: "#ff4d4d", border: "1px solid #ff4d4d", padding: "6px 12px", borderRadius: "8px", cursor: "pointer", fontSize: "12px" };
+const inputStyle = { padding: "12px", borderRadius: "8px", border: "1px solid #333", background: "#1c1f26", color: "#fff", marginBottom: "10px", outline: "none" };
+const formStyle = { display: 'flex', flexDirection: 'column' };
+const buttonStyle = (loading) => ({ padding: "14px", borderRadius: "8px", border: "none", background: loading ? "#444" : "#00e6b8", color: "#000", fontWeight: "bold", cursor: "pointer", transition: "0.3s" });
+const gridStyle = { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' };
+const itemCardStyle = { background: "#1c1f26", padding: "15px", borderRadius: "12px", border: "1px solid #333", display: 'flex', flexDirection: 'column', gap: '4px' };
+const cpwTagStyle = { marginTop: '8px', padding: '4px 8px', background: 'rgba(0, 230, 184, 0.1)', color: '#00e6b8', borderRadius: '6px', fontSize: '12px', fontWeight: 'bold', width: 'fit-content' };
 
 export default App;
