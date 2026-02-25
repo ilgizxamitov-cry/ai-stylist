@@ -21,10 +21,14 @@ function App() {
   const [activeStory, setActiveStory] = useState(null); 
   const [favorites, setFavorites] = useState([]); 
 
-  // НОВЫЕ СОСТОЯНИЯ ДЛЯ ИИ-АНАЛИЗА
-  const [imageBase64, setImageBase64] = useState(null); // Храним фото для отправки
-  const [isAnalyzing, setIsAnalyzing] = useState(false); // Крутилка анимации
+  // СОСТОЯНИЯ ДЛЯ ИИ-АНАЛИЗА
+  const [imageBase64, setImageBase64] = useState(null); 
+  const [isAnalyzing, setIsAnalyzing] = useState(false); 
   const [aiVerdict, setAiVerdict] = useState("");
+  
+  // СОСТОЯНИЯ ДЛЯ ГЕНЕРАЦИИ
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [generatedOutfit, setGeneratedOutfit] = useState("");
 
   const [item, setItem] = useState({ category: "Top", subcategory: "", color_primary: "", material: "", style: "Casual", price: "", seasons: "", occasions: "" });
 
@@ -115,14 +119,10 @@ function App() {
     const file = e.target.files[0];
     if (!file) return;
 
-    // Сбрасываем старые данные
     setAiVerdict("");
     setIsAnalyzing(false);
-
-    // Показываем превью
     setUploadedLook(URL.createObjectURL(file));
 
-    // Конвертируем в Base64 для будущей отправки
     const reader = new FileReader();
     reader.readAsDataURL(file);
     reader.onloadend = () => {
@@ -130,7 +130,7 @@ function App() {
     };
   };
 
-  // --- ЛОГИКА ИИ: ШАГ 2. Отправка на сервер ---
+  // --- ЛОГИКА ИИ: ШАГ 2. Анализ фото ---
   const sendForAnalysis = async () => {
     if (!imageBase64) return;
     setIsAnalyzing(true);
@@ -153,6 +153,37 @@ function App() {
       setAiVerdict("❌ Ошибка соединения с сервером.");
     } finally {
       setIsAnalyzing(false);
+    }
+  };
+
+  // --- ЛОГИКА ИИ: ШАГ 3. Подбор образа ---
+  const handleGenerateOutfit = async (occasion) => {
+    setIsGenerating(true);
+    setGeneratedOutfit(""); 
+    
+    setTimeout(() => window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' }), 100);
+
+    try {
+      const res = await fetch(`${API_URL}/api/generate-outfit`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ 
+          occasion: occasion,
+          wardrobe: token ? wardrobe : [] 
+        }),
+      });
+      
+      const data = await res.json();
+      if (res.ok) {
+        setGeneratedOutfit(data.outfit);
+      } else {
+        setGeneratedOutfit(`❌ Ошибка ИИ: ${data.error}`);
+      }
+    } catch (err) {
+      console.error("Generate error:", err);
+      setGeneratedOutfit("❌ Ошибка соединения с сервером.");
+    } finally {
+      setIsGenerating(false);
     }
   };
 
@@ -198,19 +229,16 @@ function App() {
         
         <input type="file" accept="image/*" ref={fileInputRef} onChange={handleFileSelect} style={{ display: 'none' }} />
         
-        {/* Кнопка загрузки пропадает, если фото уже выбрано */}
         {!uploadedLook && (
           <button onClick={() => fileInputRef.current.click()} style={{ ...buttonStyle(false), width: '100%', marginTop: '15px', background: '#fff' }}>
             📸 Выбрать фото
           </button>
         )}
 
-        {/* Экран после выбора фото */}
         {uploadedLook && (
           <div style={{ marginTop: '15px', background: 'rgba(0,0,0,0.1)', padding: '15px', borderRadius: '12px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
             <img src={uploadedLook} alt="Мой лук" style={{ width: '100%', borderRadius: '8px', marginBottom: '15px', maxHeight: '400px', objectFit: 'cover' }} />
             
-            {/* Кнопки перед отправкой */}
             {!isAnalyzing && !aiVerdict && (
                <div style={{ display: 'flex', gap: '10px', width: '100%' }}>
                   <button onClick={() => fileInputRef.current.click()} style={{ ...buttonStyle(false), flex: 1, background: '#333', color: '#fff', fontSize: '14px' }}>
@@ -222,7 +250,6 @@ function App() {
                </div>
             )}
 
-            {/* Анимированный лоадер */}
             {isAnalyzing && (
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px', margin: '20px 0' }}>
                 <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#0b0c10" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -234,7 +261,6 @@ function App() {
               </div>
             )}
 
-            {/* Ответ ИИ */}
             {aiVerdict && !isAnalyzing && (
               <div style={{ width: '100%' }}>
                 <div style={{ fontSize: '14px', color: '#0b0c10', whiteSpace: 'pre-wrap', textAlign: 'left', lineHeight: '1.6', background: '#fff', padding: '15px', borderRadius: '8px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}>
@@ -249,14 +275,34 @@ function App() {
         )}
       </div>
 
+      {/* --- БЛОК ГЕНЕРАЦИИ ОБРАЗА --- */}
       <h3 style={{ marginTop: '30px', marginBottom: '15px' }}>Подобрать образ для:</h3>
       <div style={gridStyle}>
-        <div style={occasionCardStyle} onClick={() => alert("Генерация гардероба скоро будет доступна!")}><div style={iconCircleStyle}>💼</div><span style={{ fontWeight: 'bold' }}>Работа</span></div>
-        <div style={occasionCardStyle} onClick={() => alert("Генерация гардероба скоро будет доступна!")}><div style={iconCircleStyle}>🪩</div><span style={{ fontWeight: 'bold' }}>Вечеринка</span></div>
-        <div style={occasionCardStyle} onClick={() => alert("Генерация гардероба скоро будет доступна!")}><div style={iconCircleStyle}>👟</div><span style={{ fontWeight: 'bold' }}>Прогулка</span></div>
-        <div style={occasionCardStyle} onClick={() => alert("Генерация гардероба скоро будет доступна!")}><div style={iconCircleStyle}>🥂</div><span style={{ fontWeight: 'bold' }}>Мероприятие</span></div>
+        <div style={occasionCardStyle} onClick={() => handleGenerateOutfit("Офис и деловая встреча")}><div style={iconCircleStyle}>💼</div><span style={{ fontWeight: 'bold' }}>Работа</span></div>
+        <div style={occasionCardStyle} onClick={() => handleGenerateOutfit("Яркая вечеринка или клуб")}><div style={iconCircleStyle}>🪩</div><span style={{ fontWeight: 'bold' }}>Вечеринка</span></div>
+        <div style={occasionCardStyle} onClick={() => handleGenerateOutfit("Стильная и комфортная прогулка по городу")}><div style={iconCircleStyle}>👟</div><span style={{ fontWeight: 'bold' }}>Прогулка</span></div>
+        <div style={occasionCardStyle} onClick={() => handleGenerateOutfit("Вечернее мероприятие, ресторан или театр")}><div style={iconCircleStyle}>🥂</div><span style={{ fontWeight: 'bold' }}>Мероприятие</span></div>
       </div>
-    </div>
+
+      {(isGenerating || generatedOutfit) && (
+        <div style={{ marginTop: '20px', padding: '20px', background: 'linear-gradient(135deg, #151822 0%, #1c1f26 100%)', borderRadius: '16px', border: '1px solid #00e6b8' }}>
+          {isGenerating ? (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px' }}>
+              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#00e6b8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 12a9 9 0 1 1-6.219-8.56">
+                  <animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="1s" repeatCount="indefinite"/>
+                </path>
+              </svg>
+              <span style={{ color: '#00e6b8', fontWeight: 'bold' }}>ИИ-стилист собирает капсулу...</span>
+            </div>
+          ) : (
+            <div style={{ fontSize: '14px', color: '#fff', whiteSpace: 'pre-wrap', lineHeight: '1.6' }}>
+              {generatedOutfit}
+            </div>
+          )}
+        </div>
+      )}
+    </div> // ВОТ ЭТОТ ЗАКРЫВАЮЩИЙ ТЕГ Я ВЕРНУЛ НА МЕСТО
   );
 
   const renderLoginPrompt = (title, icon) => (
