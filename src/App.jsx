@@ -15,16 +15,18 @@ function App() {
   const [user, setUser] = useState(null);
   const [token, setToken] = useState(localStorage.getItem("token"));
   const [wardrobe, setWardrobe] = useState([]);
-  const [activeTab, setActiveTab] = useState("wardrobe"); 
+  
+  // 1. АРХИТЕКТУРА: Всегда открываем Главную при старте
+  const [activeTab, setActiveTab] = useState("home"); 
   const [loading, setLoading] = useState(false);
 
-  // --- СОСТОЯНИЯ ДЛЯ ИИ И ИЗБРАННОГО ---
+  // --- СОСТОЯНИЯ ДЛЯ ИИ И СТОРИЗ ---
   const fileInputRef = useRef(null);
   const [uploadedLook, setUploadedLook] = useState(null);
   const [aiVerdict, setAiVerdict] = useState("");
+  const [activeStory, setActiveStory] = useState(null); 
   const [favorites, setFavorites] = useState([]); 
 
-  // --- СОСТОЯНИЕ ФОРМЫ ДОБАВЛЕНИЯ ---
   const [item, setItem] = useState({
     category: "Top", subcategory: "", color_primary: "", material: "", style: "Casual", price: "", seasons: "", occasions: ""
   });
@@ -38,27 +40,33 @@ function App() {
     }
   }, [token]);
 
+  // Инициализация Google Auth теперь привязана к вкладке "Профиль", если нет токена
   useEffect(() => {
     if (token) return;
-    const initGoogle = () => {
-      const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
-      if (window.google?.accounts?.id && clientId) {
-        window.google.accounts.id.initialize({
-          client_id: clientId,
-          callback: handleGoogleLogin,
-        });
-        const btn = document.getElementById("googleSignInDiv");
-        if (btn) window.google.accounts.id.renderButton(btn, { theme: "outline", size: "large" });
-      }
-    };
-    const interval = setInterval(() => {
-      if (window.google?.accounts?.id) {
-        initGoogle();
-        clearInterval(interval);
-      }
-    }, 500);
-    return () => clearInterval(interval);
-  }, [token]);
+    
+    // Пытаемся отрендерить кнопку только если открыта вкладка Профиль и элемент существует
+    if (activeTab === "profile") {
+      const initGoogle = () => {
+        const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+        if (window.google?.accounts?.id && clientId) {
+          window.google.accounts.id.initialize({
+            client_id: clientId,
+            callback: handleGoogleLogin,
+          });
+          const btn = document.getElementById("googleSignInDiv");
+          if (btn) window.google.accounts.id.renderButton(btn, { theme: "outline", size: "large" });
+        }
+      };
+      
+      const interval = setInterval(() => {
+        if (window.google?.accounts?.id && document.getElementById("googleSignInDiv")) {
+          initGoogle();
+          clearInterval(interval);
+        }
+      }, 300);
+      return () => clearInterval(interval);
+    }
+  }, [token, activeTab]);
 
   // --- ЛОГИКА АВТОРИЗАЦИИ И БД ---
   const handleGoogleLogin = async (response) => {
@@ -74,6 +82,8 @@ function App() {
         localStorage.setItem("user", JSON.stringify(data.user));
         setToken(data.token);
         setUser(data.user);
+        // После входа перекидываем в гардероб
+        setActiveTab("wardrobe"); 
       }
     } catch (err) { console.error("Login error:", err); }
   };
@@ -130,35 +140,81 @@ function App() {
     setToken(null);
     setUser(null);
     setWardrobe([]);
+    setActiveTab("home"); // При выходе кидаем на главную
   };
 
-  // --- ЛОГИКА ИМИТАЦИИ ИИ (Wizard of Oz) ---
+  // --- 2. РЕАЛЬНЫЙ ИИ (OpenAI Vision) ---
   const handleUploadLook = (e) => {
     const file = e.target.files[0];
     if (!file) return;
 
+    // Показываем фото мгновенно
     setUploadedLook(URL.createObjectURL(file));
-    setAiVerdict("⏳ ИИ анализирует текстуры и цвета...");
+    setAiVerdict("⏳ Нейросеть GPT-4o анализирует ваш образ...");
 
-    setTimeout(() => {
-      setAiVerdict("Я уверен, вы выглядите великолепно! 🔥\n(Функция ИИ-оценки скоро будет доступна)");
-    }, 2000);
+    // Конвертируем в Base64 и отправляем на бэкенд
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onloadend = async () => {
+      const base64Image = reader.result;
+
+      try {
+        const res = await fetch(`${API_URL}/api/analyze`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ image: base64Image }),
+        });
+
+        const data = await res.json();
+
+        if (res.ok) {
+          setAiVerdict(data.verdict);
+        } else {
+          setAiVerdict(`❌ Ошибка ИИ: ${data.error}`);
+        }
+      } catch (err) {
+        console.error("Upload error:", err);
+        setAiVerdict("❌ Ошибка соединения с сервером.");
+      }
+    };
   };
 
   // --- ЭКРАНЫ (РЕНДЕР) ---
   
-  // Экран 1: Главная (Интерактивный дашборд)
   const renderHome = () => (
     <div style={contentStyle}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
         <div>
-          <h2 style={{ margin: 0 }}>Привет, {user?.name?.split(' ')[0] || 'Стиляга'}! 👋</h2>
-          <p style={{ margin: 0, opacity: 0.6, fontSize: '14px' }}>Готов сиять сегодня?</p>
+          {/* Если юзер не залогинен, показываем общее приветствие */}
+          <h2 style={{ margin: 0 }}>{token ? `Привет, ${user?.name?.split(' ')[0]}! 👋` : 'Стиль от ИИ 👋'}</h2>
+          <p style={{ margin: 0, opacity: 0.6, fontSize: '14px' }}>{token ? 'Готов сиять сегодня?' : 'Оцени свой лук бесплатно'}</p>
         </div>
         {user?.picture && <img src={user.picture} alt="Avatar" style={{ width: '40px', borderRadius: '50%', border: '2px solid #00e6b8' }} />}
       </div>
 
-      {/* Главная функция: Оценить образ */}
+      {/* Сториз */}
+      <div style={storiesContainerStyle}>
+        {onboardingStories.map(story => (
+          <div key={story.id} style={storyCircleWrapperStyle} onClick={() => setActiveStory(story)}>
+            <div style={storyCircleStyle}>{story.icon}</div>
+            <span style={storyTitleStyle}>{story.title}</span>
+          </div>
+        ))}
+      </div>
+
+      {/* Модалка для Сториз */}
+      {activeStory && (
+        <div style={storyModalOverlayStyle} onClick={() => setActiveStory(null)}>
+          <div style={storyModalStyle} onClick={e => e.stopPropagation()}>
+            <div style={{ fontSize: '50px', marginBottom: '10px' }}>{activeStory.icon}</div>
+            <h3>{activeStory.title}</h3>
+            <p style={{ opacity: 0.8, lineHeight: '1.5' }}>{activeStory.text}</p>
+            <button onClick={() => setActiveStory(null)} style={{...buttonStyle(false), marginTop: '20px', width: '100%'}}>Понятно</button>
+          </div>
+        </div>
+      )}
+
+      {/* Блок Оценки (Доступен всем) */}
       <div style={aiBannerStyle}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
           <div style={{ fontSize: '40px' }}>✨</div>
@@ -177,106 +233,118 @@ function App() {
         {uploadedLook && (
           <div style={{ marginTop: '15px', background: 'rgba(0,0,0,0.1)', padding: '10px', borderRadius: '12px', textAlign: 'center' }}>
             <img src={uploadedLook} alt="Мой лук" style={{ width: '100%', borderRadius: '8px', marginBottom: '10px', maxHeight: '300px', objectFit: 'cover' }} />
-            <p style={{ margin: 0, fontSize: '14px', fontWeight: 'bold', color: '#0b0c10', whiteSpace: 'pre-line' }}>{aiVerdict}</p>
+            <p style={{ margin: 0, fontSize: '14px', fontWeight: 'bold', color: '#0b0c10', whiteSpace: 'pre-line', textAlign: 'left' }}>{aiVerdict}</p>
           </div>
         )}
       </div>
 
       <h3 style={{ marginTop: '30px', marginBottom: '15px' }}>Подобрать образ для:</h3>
       <div style={gridStyle}>
-        <div style={occasionCardStyle} onClick={() => alert("ИИ подбирает деловой образ...")}><div style={iconCircleStyle}>💼</div><span style={{ fontWeight: 'bold' }}>Работа</span></div>
-        <div style={occasionCardStyle} onClick={() => alert("ИИ подбирает образ для вечеринки...")}><div style={iconCircleStyle}>🪩</div><span style={{ fontWeight: 'bold' }}>Вечеринка</span></div>
-        <div style={occasionCardStyle} onClick={() => alert("ИИ подбирает casual образ...")}><div style={iconCircleStyle}>👟</div><span style={{ fontWeight: 'bold' }}>Прогулка</span></div>
-        <div style={occasionCardStyle} onClick={() => alert("ИИ подбирает вечерний образ...")}><div style={iconCircleStyle}>🥂</div><span style={{ fontWeight: 'bold' }}>Мероприятие</span></div>
+        <div style={occasionCardStyle} onClick={() => alert("Функция генерации из базового гардероба скоро будет доступна!")}><div style={iconCircleStyle}>💼</div><span style={{ fontWeight: 'bold' }}>Работа</span></div>
+        <div style={occasionCardStyle} onClick={() => alert("Функция генерации из базового гардероба скоро будет доступна!")}><div style={iconCircleStyle}>🪩</div><span style={{ fontWeight: 'bold' }}>Вечеринка</span></div>
+        <div style={occasionCardStyle} onClick={() => alert("Функция генерации из базового гардероба скоро будет доступна!")}><div style={iconCircleStyle}>👟</div><span style={{ fontWeight: 'bold' }}>Прогулка</span></div>
+        <div style={occasionCardStyle} onClick={() => alert("Функция генерации из базового гардероба скоро будет доступна!")}><div style={iconCircleStyle}>🥂</div><span style={{ fontWeight: 'bold' }}>Мероприятие</span></div>
       </div>
     </div>
   );
 
-  // Экран 2: Гардероб (Форма + Список)
-  const renderWardrobe = () => (
+  // 3. ЗАГЛУШКИ ДЛЯ НЕАВТОРИЗОВАННЫХ ПОЛЬЗОВАТЕЛЕЙ
+  const renderLoginPrompt = (title, icon) => (
     <div style={contentStyle}>
-      <h2>Гардероб</h2>
-      <div style={cardStyle}>
-        <h3 style={{ marginBottom: "15px" }}>Добавить вещь</h3>
-        <form onSubmit={handleAddItem} style={formStyle}>
-          <div style={{ marginBottom: '15px', borderLeft: '3px solid #ff4d4d', paddingLeft: '10px' }}>
-            <p style={{ margin: '0 0 5px 0', fontSize: '12px', color: '#ff4d4d' }}>Обязательно</p>
-            <select value={item.category} onChange={e => setItem({...item, category: e.target.value})} style={inputStyle} required>
-              <option value="Top">Верх</option><option value="Bottom">Низ</option><option value="Shoes">Обувь</option><option value="Outwear">Верхняя одежда</option>
-            </select>
-            <input placeholder="Подкатегория (Худи, Джинсы) *" value={item.subcategory} onChange={e => setItem({...item, subcategory: e.target.value})} style={inputStyle} required />
-            <input placeholder="Основной цвет *" value={item.color_primary} onChange={e => setItem({...item, color_primary: e.target.value})} style={inputStyle} required />
-            <input placeholder="Цена покупки *" type="number" value={item.price} onChange={e => setItem({...item, price: e.target.value})} style={inputStyle} required />
-          </div>
-          <div style={{ marginBottom: '15px', borderLeft: '3px solid #00e6b8', paddingLeft: '10px' }}>
-            <p style={{ margin: '0 0 5px 0', fontSize: '12px', color: '#00e6b8' }}>Дополнительно для ИИ</p>
-            <input placeholder="Материал (Хлопок, Шерсть)" value={item.material} onChange={e => setItem({...item, material: e.target.value})} style={inputStyle} />
-            <input placeholder="Сезоны (Зима, Лето)" value={item.seasons} onChange={e => setItem({...item, seasons: e.target.value})} style={inputStyle} />
-          </div>
-          <button type="submit" disabled={loading} style={buttonStyle(loading)}>{loading ? "Сохранение..." : "Добавить в шкаф"}</button>
-        </form>
-      </div>
-
-      <div style={gridStyle}>
-        {wardrobe.map(i => (
-          <div key={i.id} style={itemCardStyle}>
-            <span style={{ fontWeight: "bold" }}>{i.subcategory || i.category}</span>
-            <span style={{ fontSize: "12px", opacity: 0.7 }}>{i.color_primary} {i.material ? `| ${i.material}` : ''}</span>
-            <div style={cpwTagStyle}>{i.purchase_price} ₽</div>
-          </div>
-        ))}
+      <h2>{title}</h2>
+      <div style={{ ...cardStyle, textAlign: 'center', marginTop: '40px', padding: '40px 20px' }}>
+        <div style={{ fontSize: '50px', marginBottom: '15px' }}>{icon}</div>
+        <h3>Требуется профиль</h3>
+        <p style={{ opacity: 0.7, marginBottom: '30px' }}>Чтобы сохранять вещи и луки, войдите в систему.</p>
+        <button onClick={() => setActiveTab("profile")} style={buttonStyle(false)}>Перейти ко входу</button>
       </div>
     </div>
   );
 
-  // Экран 3: Избранные
-  const renderFavorites = () => (
+  const renderWardrobe = () => {
+    if (!token) return renderLoginPrompt("Гардероб", "👕");
+    return (
+      <div style={contentStyle}>
+        <h2>Гардероб</h2>
+        <div style={cardStyle}>
+          <h3 style={{ marginBottom: "15px" }}>Добавить вещь</h3>
+          <form onSubmit={handleAddItem} style={formStyle}>
+            <div style={{ marginBottom: '15px', borderLeft: '3px solid #ff4d4d', paddingLeft: '10px' }}>
+              <p style={{ margin: '0 0 5px 0', fontSize: '12px', color: '#ff4d4d' }}>Обязательно</p>
+              <select value={item.category} onChange={e => setItem({...item, category: e.target.value})} style={inputStyle} required>
+                <option value="Top">Верх</option><option value="Bottom">Низ</option><option value="Shoes">Обувь</option><option value="Outwear">Верхняя одежда</option>
+              </select>
+              <input placeholder="Подкатегория (Худи, Джинсы) *" value={item.subcategory} onChange={e => setItem({...item, subcategory: e.target.value})} style={inputStyle} required />
+              <input placeholder="Основной цвет *" value={item.color_primary} onChange={e => setItem({...item, color_primary: e.target.value})} style={inputStyle} required />
+              <input placeholder="Цена покупки *" type="number" value={item.price} onChange={e => setItem({...item, price: e.target.value})} style={inputStyle} required />
+            </div>
+            <div style={{ marginBottom: '15px', borderLeft: '3px solid #00e6b8', paddingLeft: '10px' }}>
+              <p style={{ margin: '0 0 5px 0', fontSize: '12px', color: '#00e6b8' }}>Дополнительно для ИИ</p>
+              <input placeholder="Материал (Хлопок, Шерсть)" value={item.material} onChange={e => setItem({...item, material: e.target.value})} style={inputStyle} />
+              <input placeholder="Сезоны (Зима, Лето)" value={item.seasons} onChange={e => setItem({...item, seasons: e.target.value})} style={inputStyle} />
+            </div>
+            <button type="submit" disabled={loading} style={buttonStyle(loading)}>{loading ? "Сохранение..." : "Добавить в шкаф"}</button>
+          </form>
+        </div>
+
+        <div style={gridStyle}>
+          {wardrobe.map(i => (
+            <div key={i.id} style={itemCardStyle}>
+              <span style={{ fontWeight: "bold" }}>{i.subcategory || i.category}</span>
+              <span style={{ fontSize: "12px", opacity: 0.7 }}>{i.color_primary} {i.material ? `| ${i.material}` : ''}</span>
+              <div style={cpwTagStyle}>{i.purchase_price} ₽</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
+  const renderFavorites = () => {
+    if (!token) return renderLoginPrompt("Избранное", "🤍");
+    return (
+      <div style={contentStyle}>
+        <h2>Избранные луки</h2>
+        {favorites.length === 0 ? (
+          <div style={{ textAlign: 'center', opacity: 0.5, marginTop: '50px' }}>
+            <span style={{ fontSize: '40px' }}>🤍</span>
+            <p>Вы пока не сохранили ни одного образа.</p>
+          </div>
+        ) : (
+          <div style={gridStyle}>
+            {/* Будущие карточки */}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderProfile = () => (
     <div style={contentStyle}>
-      <h2>Избранные луки</h2>
-      {favorites.length === 0 ? (
-        <div style={{ textAlign: 'center', opacity: 0.5, marginTop: '50px' }}>
-          <span style={{ fontSize: '40px' }}>🤍</span>
-          <p>Вы пока не сохранили ни одного образа.</p>
-          <p style={{ fontSize: '12px' }}>Сгенерируйте лук на главной странице и нажмите на сердечко, чтобы он появился здесь.</p>
+      <h2>Профиль</h2>
+      {!token ? (
+        <div style={{ ...cardStyle, textAlign: 'center' }}>
+          <h3>Вход в систему</h3>
+          <p style={{ opacity: 0.7 }}>Синхронизируйте свой гардероб</p>
+          {/* Кнопка Google отрендерится здесь благодаря useEffect */}
+          <div id="googleSignInDiv" style={{ display: 'flex', justifyContent: 'center', marginTop: '30px', minHeight: '40px' }}></div>
         </div>
       ) : (
-        <div style={gridStyle}>
-          {/* Будущие карточки */}
+        <div style={{ ...cardStyle, textAlign: 'center' }}>
+          {user?.picture && <img src={user.picture} alt="Avatar" style={{ width: '80px', borderRadius: '50%', marginBottom: '10px' }} />}
+          <h3>{user?.name}</h3>
+          <p style={{ opacity: 0.7 }}>{user?.email}</p>
+          <span style={tierBadgeStyle}>{user?.subscription_tier || 'FREE'} PLAN</span>
+          <div style={{ marginTop: '30px', borderTop: '1px solid #333', paddingTop: '20px' }}>
+            <button onClick={handleLogout} style={logoutButtonStyle}>Выйти из аккаунта</button>
+          </div>
         </div>
       )}
     </div>
   );
 
-  // Экран 4: Профиль
-  const renderProfile = () => (
-    <div style={contentStyle}>
-      <h2>Профиль</h2>
-      <div style={{ ...cardStyle, textAlign: 'center' }}>
-        {user?.picture && <img src={user.picture} alt="Avatar" style={{ width: '80px', borderRadius: '50%', marginBottom: '10px' }} />}
-        <h3>{user?.name}</h3>
-        <p style={{ opacity: 0.7 }}>{user?.email}</p>
-        <span style={tierBadgeStyle}>{user?.subscription_tier || 'FREE'} PLAN</span>
-        <div style={{ marginTop: '30px', borderTop: '1px solid #333', paddingTop: '20px' }}>
-          <button onClick={handleLogout} style={logoutButtonStyle}>Выйти из аккаунта</button>
-        </div>
-      </div>
-    </div>
-  );
-
-  // --- ТОЧКА ВХОДА (Если не авторизован) ---
-  if (!token) {
-    return (
-      <div style={containerStyle}>
-        <div style={{ textAlign: 'center', padding: '60px 20px' }}>
-          <h1 style={{ fontSize: '3rem', marginBottom: '10px', color: '#00e6b8' }}>AI Stylist Pro</h1>
-          <p style={{ opacity: 0.8 }}>Ваш умный гардероб на базе ИИ.</p>
-          <div id="googleSignInDiv" style={{ display: 'flex', justifyContent: 'center', marginTop: '30px' }}></div>
-        </div>
-      </div>
-    );
-  }
-
-  // --- ОСНОВНОЙ ИНТЕРФЕЙС (Если авторизован) ---
+  // --- ГЛАВНЫЙ РЕНДЕР ПРИЛОЖЕНИЯ ---
+  // Мы больше не блокируем вход! Сразу рисуем интерфейс с навигацией.
   return (
     <div style={appWrapperStyle}>
       <div style={scrollableAreaStyle}>
@@ -321,7 +389,6 @@ const aiBannerStyle = { background: 'linear-gradient(135deg, #00e6b8 0%, #00b38f
 const occasionCardStyle = { background: '#151822', padding: '15px', borderRadius: '16px', border: '1px solid #222', display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: '5px', cursor: 'pointer', transition: '0.2s', boxShadow: '0 4px 10px rgba(0,0,0,0.3)' };
 const iconCircleStyle = { background: '#1c1f26', width: '50px', height: '50px', borderRadius: '50%', display: 'flex', justifyContent: 'center', alignItems: 'center', fontSize: '24px', marginBottom: '5px', border: '1px solid #333' };
 
-// Стили для сториз
 const storiesContainerStyle = { display: 'flex', gap: '15px', overflowX: 'auto', paddingBottom: '10px', marginBottom: '20px', scrollbarWidth: 'none' };
 const storyCircleWrapperStyle = { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '5px', minWidth: '70px', cursor: 'pointer' };
 const storyCircleStyle = { width: '64px', height: '64px', borderRadius: '50%', background: '#151822', border: '2px solid #00e6b8', display: 'flex', justifyContent: 'center', alignItems: 'center', fontSize: '28px', padding: '2px' };

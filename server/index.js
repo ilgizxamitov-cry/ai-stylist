@@ -14,7 +14,11 @@ dotenv.config({ path: path.resolve(__dirname, "../.env") });
 
 const { Pool } = pkg;
 const app = express();
-const PORT = process.env.PORT || 8080; // Railway часто использует 8080
+
+const PORT = process.env.PORT || 8080; 
+
+// --- 1. ИНИЦИАЛИЗАЦИЯ СЕРВИСОВ ---
+// Перенесли наверх, чтобы все роуты их видели
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -23,16 +27,12 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false },
 });
 
-// Константы лимитов согласно твоей бизнес-модели
-const TIER_LIMITS = {
-  free: 20,
-  paid: 200,
-  vip: Infinity
-};
+// Константы лимитов
+const TIER_LIMITS = { free: 20, paid: 200, vip: Infinity };
 
+// --- 2. БАЗА ДАННЫХ ---
 const initDB = async () => {
   try {
-    // 1. Таблица пользователей с полем подписки
     await pool.query(`
       CREATE TABLE IF NOT EXISTS users (
         id SERIAL PRIMARY KEY,
@@ -45,7 +45,6 @@ const initDB = async () => {
       );
     `);
 
-    // 2. Расширенная таблица вещей для ИИ-анализа и CPW
     await pool.query(`
       CREATE TABLE IF NOT EXISTS wardrobe_items (
         id SERIAL PRIMARY KEY,
@@ -74,10 +73,10 @@ const initDB = async () => {
 };
 initDB();
 
+// --- 3. MIDDLEWARE ---
 app.use(cors());
-app.use(express.json({ limit: "10mb" }));
+app.use(express.json({ limit: "10mb" })); // Лимит для больших фото увеличен
 
-// --- Middleware авторизации ---
 const authenticateToken = (req, res, next) => {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
@@ -90,7 +89,45 @@ const authenticateToken = (req, res, next) => {
   });
 };
 
-// --- Роуты ---
+// --- 4. РОУТЫ ---
+
+// ИИ Оценка образа (Доступна без авторизации для новых пользователей)
+app.post('/api/analyze', async (req, res) => {
+  try {
+    const { image } = req.body; 
+
+    if (!image) {
+      return res.status(400).json({ error: "Картинка не предоставлена" });
+    }
+
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o",
+      messages: [
+        {
+          role: "user",
+          content: [
+            { 
+              type: "text", 
+              text: "Ты профессиональный фэшн-стилист. Оцени этот образ на фото. Будь краток (2-3 предложения). Сделай один искренний комплимент и дай один вежливый совет по улучшению стиля, цветов или пропорций." 
+            },
+            {
+              type: "image_url",
+              image_url: { url: image },
+            },
+          ],
+        },
+      ],
+      max_tokens: 300,
+    });
+
+    const verdict = response.choices[0].message.content;
+    res.json({ verdict });
+
+  } catch (error) {
+    console.error("OpenAI Error:", error);
+    res.status(500).json({ error: "Ошибка при анализе образа ИИ" });
+  }
+});
 
 app.post("/auth/google", async (req, res) => {
   try {
@@ -117,7 +154,6 @@ app.post("/auth/google", async (req, res) => {
   }
 });
 
-// Добавление вещи с проверкой лимитов (20/200/unlimit)
 app.post("/wardrobe", authenticateToken, async (req, res) => {
   try {
     const userId = req.user.id;
@@ -126,7 +162,6 @@ app.post("/wardrobe", authenticateToken, async (req, res) => {
       style, purchase_price, seasons, occasions 
     } = req.body;
 
-    // 1. Проверка лимита согласно уровню подписки
     const userStatus = await pool.query(
       `SELECT subscription_tier, 
         (SELECT COUNT(*) FROM wardrobe_items WHERE user_id = $1) as current_count
@@ -143,7 +178,6 @@ app.post("/wardrobe", authenticateToken, async (req, res) => {
       });
     }
 
-    // 2. Сохранение вещи
     const result = await pool.query(
       `INSERT INTO wardrobe_items 
        (user_id, category, subcategory, color_primary, material, style, purchase_price, seasons, occasions)
@@ -171,25 +205,7 @@ app.get("/wardrobe", authenticateToken, async (req, res) => {
   }
 });
 
-// Удалено дублирование /analyze. Оставлен режим MOCK_AI для экономии.
-const isMockMode = process.env.MOCK_AI === "true";
-app.post("/analyze", authenticateToken, async (req, res) => {
-  try {
-    if (isMockMode) {
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      return res.json({
-        verdict: "Режим отладки: Образ выглядит отлично!",
-        mistakes: [],
-        improvements: ["Добавьте аксессуар."],
-        shopping_tips: ["Базовая белая рубашка."]
-      });
-    }
-    // Здесь логика OpenAI Vision...
-  } catch (error) {
-    res.status(500).json({ error: "Ошибка анализа" });
-  }
-});
-
+// --- СТАРТ СЕРВЕРА ---
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`🚀 AI Stylist Server запущен на порту ${PORT}`);
 });
