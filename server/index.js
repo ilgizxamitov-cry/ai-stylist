@@ -118,7 +118,7 @@ app.post('/api/analyze', async (req, res) => {
           content: [
             { 
               type: "text", 
-              text: "YOU ARE A WORLD-RENOWNED FASHION STYLIST AND IMAGE CONSULTANT, 
+              text: `YOU ARE A WORLD-RENOWNED FASHION STYLIST AND IMAGE CONSULTANT, 
 WINNER OF THE INTERNATIONAL STYLE AWARD 2024 AND PERSONAL BRAND EXPERT FOR CELEBRITIES AND BUSINESS LEADERS.
 
 YOUR TASK IS TO ПРОАНАЛИЗИРОВАТЬ СТИЛЬ ОБРАЗА ЧЕЛОВЕКА ПО ОПИСАНИЮ ИЛИ ИЗОБРАЖЕНИЮ И ДАТЬ ПРОФЕССИОНАЛЬНУЮ ОЦЕНКУ.
@@ -179,7 +179,7 @@ WHAT NOT TO DO:
 - НЕ ИСПОЛЬЗУЙ ОСКОРБИТЕЛЬНЫЙ ТОН.
 - ИЗБЕГАЙ НЕАРГУМЕНТИРОВАННЫХ ОЦЕНОК.
 
-ТВОЙ АНАЛИЗ ДОЛЖЕН БЫТЬ ПРОФЕССИОНАЛЬНЫМ, СТРУКТУРИРОВАННЫМ, КОНСТРУКТИВНЫМ И ЭКСПЕРТНЫМ." 
+ТВОЙ АНАЛИЗ ДОЛЖЕН БЫТЬ ПРОФЕССИОНАЛЬНЫМ, СТРУКТУРИРОВАННЫМ, КОНСТРУКТИВНЫМ И ЭКСПЕРТНЫМ.` 
             },
             {
               type: "image_url",
@@ -188,7 +188,7 @@ WHAT NOT TO DO:
           ],
         },
       ],
-      max_tokens: 900,
+      max_tokens: 1300,
     });
 
     const verdict = response.choices[0].message.content;
