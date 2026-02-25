@@ -2,6 +2,14 @@ import React, { useState, useEffect, useRef } from "react";
 
 const API_URL = import.meta.env.VITE_API_URL || "https://ai-stylist-production-7f72.up.railway.app";
 
+// Данные для Сториз
+const onboardingStories = [
+  { id: 1, icon: "✨", title: "ИИ-Стилист", text: "Загрузите фото, и нейросеть разберет ваш образ на детали, оценив стиль и цветовое сочетание." },
+  { id: 2, icon: "📱", title: "Умный шкаф", text: "Оцифруйте свою одежду один раз. Забудьте о проблеме «нечего надеть» навсегда." },
+  { id: 3, icon: "💸", title: "Метрика CPW", text: "Мы считаем стоимость каждого выхода вещи (Cost Per Wear). Экономьте на покупках с умом." },
+  { id: 4, icon: "🚀", title: "Безлимит", text: "Попробуйте генерацию луков прямо сейчас! Без регистрации мы используем базу типичного гардероба." }
+];
+
 function App() {
   // --- СОСТОЯНИЯ БАЗОВЫЕ ---
   const [user, setUser] = useState(null);
@@ -312,5 +320,13 @@ const navItemStyle = (isActive) => ({ textAlign: 'center', fontSize: '10px', col
 const aiBannerStyle = { background: 'linear-gradient(135deg, #00e6b8 0%, #00b38f 100%)', padding: '20px', borderRadius: '16px', color: '#0b0c10', boxShadow: '0 10px 20px rgba(0, 230, 184, 0.2)' };
 const occasionCardStyle = { background: '#151822', padding: '15px', borderRadius: '16px', border: '1px solid #222', display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: '5px', cursor: 'pointer', transition: '0.2s', boxShadow: '0 4px 10px rgba(0,0,0,0.3)' };
 const iconCircleStyle = { background: '#1c1f26', width: '50px', height: '50px', borderRadius: '50%', display: 'flex', justifyContent: 'center', alignItems: 'center', fontSize: '24px', marginBottom: '5px', border: '1px solid #333' };
+
+// Стили для сториз
+const storiesContainerStyle = { display: 'flex', gap: '15px', overflowX: 'auto', paddingBottom: '10px', marginBottom: '20px', scrollbarWidth: 'none' };
+const storyCircleWrapperStyle = { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '5px', minWidth: '70px', cursor: 'pointer' };
+const storyCircleStyle = { width: '64px', height: '64px', borderRadius: '50%', background: '#151822', border: '2px solid #00e6b8', display: 'flex', justifyContent: 'center', alignItems: 'center', fontSize: '28px', padding: '2px' };
+const storyTitleStyle = { fontSize: '10px', textAlign: 'center', opacity: 0.8, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', width: '100%' };
+const storyModalOverlayStyle = { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.8)', zIndex: 2000, display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '20px' };
+const storyModalStyle = { background: '#151822', padding: '30px', borderRadius: '20px', maxWidth: '400px', width: '100%', textAlign: 'center', border: '1px solid #00e6b8' };
 
 export default App;
