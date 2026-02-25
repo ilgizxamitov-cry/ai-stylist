@@ -13,16 +13,18 @@ function App() {
   const [user, setUser] = useState(null);
   const [token, setToken] = useState(localStorage.getItem("token"));
   const [wardrobe, setWardrobe] = useState([]);
-  
-  // 1. ПРИЛОЖЕНИЕ ВСЕГДА ОТКРЫВАЕТСЯ С ГЛАВНОГО ЭКРАНА
   const [activeTab, setActiveTab] = useState("home"); 
   const [loading, setLoading] = useState(false);
 
   const fileInputRef = useRef(null);
   const [uploadedLook, setUploadedLook] = useState(null);
-  const [aiVerdict, setAiVerdict] = useState("");
   const [activeStory, setActiveStory] = useState(null); 
   const [favorites, setFavorites] = useState([]); 
+
+  // НОВЫЕ СОСТОЯНИЯ ДЛЯ ИИ-АНАЛИЗА
+  const [imageBase64, setImageBase64] = useState(null); // Храним фото для отправки
+  const [isAnalyzing, setIsAnalyzing] = useState(false); // Крутилка анимации
+  const [aiVerdict, setAiVerdict] = useState("");
 
   const [item, setItem] = useState({ category: "Top", subcategory: "", color_primary: "", material: "", style: "Casual", price: "", seasons: "", occasions: "" });
 
@@ -108,35 +110,50 @@ function App() {
     setActiveTab("home");
   };
 
-  // --- 2. ЛОГИКА ИИ (ОТПРАВКА НА СЕРВЕР) ---
-  const handleUploadLook = (e) => {
+  // --- ЛОГИКА ИИ: ШАГ 1. Выбор фото ---
+  const handleFileSelect = (e) => {
     const file = e.target.files[0];
     if (!file) return;
 
-    setUploadedLook(URL.createObjectURL(file));
-    setAiVerdict("⏳ ИИ-стилист анализирует ваш образ...");
+    // Сбрасываем старые данные
+    setAiVerdict("");
+    setIsAnalyzing(false);
 
+    // Показываем превью
+    setUploadedLook(URL.createObjectURL(file));
+
+    // Конвертируем в Base64 для будущей отправки
     const reader = new FileReader();
     reader.readAsDataURL(file);
-    reader.onloadend = async () => {
-      const base64Image = reader.result;
-      try {
-        const res = await fetch(`${API_URL}/api/analyze`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ image: base64Image }),
-        });
-        const data = await res.json();
-        if (res.ok) {
-          setAiVerdict(data.verdict);
-        } else {
-          setAiVerdict(`❌ Ошибка ИИ: ${data.error}`);
-        }
-      } catch (err) {
-        console.error("Upload error:", err);
-        setAiVerdict("❌ Ошибка соединения с сервером.");
-      }
+    reader.onloadend = () => {
+      setImageBase64(reader.result);
     };
+  };
+
+  // --- ЛОГИКА ИИ: ШАГ 2. Отправка на сервер ---
+  const sendForAnalysis = async () => {
+    if (!imageBase64) return;
+    setIsAnalyzing(true);
+    setAiVerdict("");
+
+    try {
+      const res = await fetch(`${API_URL}/api/analyze`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ image: imageBase64 }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setAiVerdict(data.verdict);
+      } else {
+        setAiVerdict(`❌ Ошибка ИИ: ${data.error}`);
+      }
+    } catch (err) {
+      console.error("Upload error:", err);
+      setAiVerdict("❌ Ошибка соединения с сервером.");
+    } finally {
+      setIsAnalyzing(false);
+    }
   };
 
   const renderHome = () => (
@@ -169,40 +186,75 @@ function App() {
         </div>
       )}
 
+      {/* --- БЛОК ОЦЕНКИ ОБРАЗА --- */}
       <div style={aiBannerStyle}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
           <div style={{ fontSize: '40px' }}>✨</div>
           <div>
             <h3 style={{ margin: '0 0 5px 0' }}>Оценить образ</h3>
-            <p style={{ margin: 0, fontSize: '12px', opacity: 0.8 }}>Загрузи фото для разбора</p>
+            <p style={{ margin: 0, fontSize: '12px', opacity: 0.8 }}>Нейросеть разберет ваш лук</p>
           </div>
         </div>
-        <input type="file" accept="image/*" ref={fileInputRef} onChange={handleUploadLook} style={{ display: 'none' }} />
-        <button onClick={() => fileInputRef.current.click()} style={{ ...buttonStyle(false), width: '100%', marginTop: '15px', background: '#fff' }}>
-          📸 Камера / Галерея
-        </button>
+        
+        <input type="file" accept="image/*" ref={fileInputRef} onChange={handleFileSelect} style={{ display: 'none' }} />
+        
+        {/* Кнопка загрузки пропадает, если фото уже выбрано */}
+        {!uploadedLook && (
+          <button onClick={() => fileInputRef.current.click()} style={{ ...buttonStyle(false), width: '100%', marginTop: '15px', background: '#fff' }}>
+            📸 Выбрать фото
+          </button>
+        )}
 
+        {/* Экран после выбора фото */}
         {uploadedLook && (
-          <div style={{ marginTop: '15px', background: 'rgba(0,0,0,0.1)', padding: '15px', borderRadius: '12px' }}>
+          <div style={{ marginTop: '15px', background: 'rgba(0,0,0,0.1)', padding: '15px', borderRadius: '12px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
             <img src={uploadedLook} alt="Мой лук" style={{ width: '100%', borderRadius: '8px', marginBottom: '15px', maxHeight: '400px', objectFit: 'cover' }} />
-            {/* Обновили стили для красивого отображения длинного ответа ИИ */}
-            <div style={{ fontSize: '14px', color: '#0b0c10', whiteSpace: 'pre-wrap', textAlign: 'left', lineHeight: '1.6' }}>
-              {aiVerdict === "⏳ ИИ-стилист анализирует ваш образ..." ? (
-                <div style={{ textAlign: 'center', fontWeight: 'bold' }}>{aiVerdict}</div>
-              ) : (
-                aiVerdict
-              )}
-            </div>
+            
+            {/* Кнопки перед отправкой */}
+            {!isAnalyzing && !aiVerdict && (
+               <div style={{ display: 'flex', gap: '10px', width: '100%' }}>
+                  <button onClick={() => fileInputRef.current.click()} style={{ ...buttonStyle(false), flex: 1, background: '#333', color: '#fff', fontSize: '14px' }}>
+                    🔄 Заменить
+                  </button>
+                  <button onClick={sendForAnalysis} style={{ ...buttonStyle(false), flex: 2, fontSize: '14px' }}>
+                    ✨ Отправить
+                  </button>
+               </div>
+            )}
+
+            {/* Анимированный лоадер */}
+            {isAnalyzing && (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px', margin: '20px 0' }}>
+                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#0b0c10" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 12a9 9 0 1 1-6.219-8.56">
+                    <animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="1s" repeatCount="indefinite"/>
+                  </path>
+                </svg>
+                <span style={{ fontWeight: 'bold', color: '#0b0c10' }}>Стилист разбирает образ...</span>
+              </div>
+            )}
+
+            {/* Ответ ИИ */}
+            {aiVerdict && !isAnalyzing && (
+              <div style={{ width: '100%' }}>
+                <div style={{ fontSize: '14px', color: '#0b0c10', whiteSpace: 'pre-wrap', textAlign: 'left', lineHeight: '1.6', background: '#fff', padding: '15px', borderRadius: '8px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}>
+                  {aiVerdict}
+                </div>
+                <button onClick={() => { setUploadedLook(null); setAiVerdict(""); setImageBase64(null); }} style={{...buttonStyle(false), width: '100%', marginTop: '15px', background: '#0b0c10', color: '#00e6b8'}}>
+                  Разобрать другой образ
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>
 
       <h3 style={{ marginTop: '30px', marginBottom: '15px' }}>Подобрать образ для:</h3>
       <div style={gridStyle}>
-        <div style={occasionCardStyle} onClick={() => alert("Функция генерации скоро будет доступна!")}><div style={iconCircleStyle}>💼</div><span style={{ fontWeight: 'bold' }}>Работа</span></div>
-        <div style={occasionCardStyle} onClick={() => alert("Функция генерации скоро будет доступна!")}><div style={iconCircleStyle}>🪩</div><span style={{ fontWeight: 'bold' }}>Вечеринка</span></div>
-        <div style={occasionCardStyle} onClick={() => alert("Функция генерации скоро будет доступна!")}><div style={iconCircleStyle}>👟</div><span style={{ fontWeight: 'bold' }}>Прогулка</span></div>
-        <div style={occasionCardStyle} onClick={() => alert("Функция генерации скоро будет доступна!")}><div style={iconCircleStyle}>🥂</div><span style={{ fontWeight: 'bold' }}>Мероприятие</span></div>
+        <div style={occasionCardStyle} onClick={() => alert("Генерация гардероба скоро будет доступна!")}><div style={iconCircleStyle}>💼</div><span style={{ fontWeight: 'bold' }}>Работа</span></div>
+        <div style={occasionCardStyle} onClick={() => alert("Генерация гардероба скоро будет доступна!")}><div style={iconCircleStyle}>🪩</div><span style={{ fontWeight: 'bold' }}>Вечеринка</span></div>
+        <div style={occasionCardStyle} onClick={() => alert("Генерация гардероба скоро будет доступна!")}><div style={iconCircleStyle}>👟</div><span style={{ fontWeight: 'bold' }}>Прогулка</span></div>
+        <div style={occasionCardStyle} onClick={() => alert("Генерация гардероба скоро будет доступна!")}><div style={iconCircleStyle}>🥂</div><span style={{ fontWeight: 'bold' }}>Мероприятие</span></div>
       </div>
     </div>
   );
