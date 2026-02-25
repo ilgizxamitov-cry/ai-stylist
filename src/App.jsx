@@ -2,7 +2,6 @@ import React, { useState, useEffect, useRef } from "react";
 
 const API_URL = import.meta.env.VITE_API_URL || "https://ai-stylist-production-7f72.up.railway.app";
 
-// Данные для Сториз
 const onboardingStories = [
   { id: 1, icon: "✨", title: "ИИ-Стилист", text: "Загрузите фото, и нейросеть разберет ваш образ на детали, оценив стиль и цветовое сочетание." },
   { id: 2, icon: "📱", title: "Умный шкаф", text: "Оцифруйте свою одежду один раз. Забудьте о проблеме «нечего надеть» навсегда." },
@@ -11,27 +10,22 @@ const onboardingStories = [
 ];
 
 function App() {
-  // --- СОСТОЯНИЯ БАЗОВЫЕ ---
   const [user, setUser] = useState(null);
   const [token, setToken] = useState(localStorage.getItem("token"));
   const [wardrobe, setWardrobe] = useState([]);
   
-  // 1. АРХИТЕКТУРА: Всегда открываем Главную при старте
+  // 1. ПРИЛОЖЕНИЕ ВСЕГДА ОТКРЫВАЕТСЯ С ГЛАВНОГО ЭКРАНА
   const [activeTab, setActiveTab] = useState("home"); 
   const [loading, setLoading] = useState(false);
 
-  // --- СОСТОЯНИЯ ДЛЯ ИИ И СТОРИЗ ---
   const fileInputRef = useRef(null);
   const [uploadedLook, setUploadedLook] = useState(null);
   const [aiVerdict, setAiVerdict] = useState("");
   const [activeStory, setActiveStory] = useState(null); 
   const [favorites, setFavorites] = useState([]); 
 
-  const [item, setItem] = useState({
-    category: "Top", subcategory: "", color_primary: "", material: "", style: "Casual", price: "", seasons: "", occasions: ""
-  });
+  const [item, setItem] = useState({ category: "Top", subcategory: "", color_primary: "", material: "", style: "Casual", price: "", seasons: "", occasions: "" });
 
-  // --- ЭФФЕКТЫ ---
   useEffect(() => {
     const savedUser = localStorage.getItem("user");
     if (token && savedUser) {
@@ -40,24 +34,17 @@ function App() {
     }
   }, [token]);
 
-  // Инициализация Google Auth теперь привязана к вкладке "Профиль", если нет токена
   useEffect(() => {
     if (token) return;
-    
-    // Пытаемся отрендерить кнопку только если открыта вкладка Профиль и элемент существует
     if (activeTab === "profile") {
       const initGoogle = () => {
         const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
         if (window.google?.accounts?.id && clientId) {
-          window.google.accounts.id.initialize({
-            client_id: clientId,
-            callback: handleGoogleLogin,
-          });
+          window.google.accounts.id.initialize({ client_id: clientId, callback: handleGoogleLogin });
           const btn = document.getElementById("googleSignInDiv");
           if (btn) window.google.accounts.id.renderButton(btn, { theme: "outline", size: "large" });
         }
       };
-      
       const interval = setInterval(() => {
         if (window.google?.accounts?.id && document.getElementById("googleSignInDiv")) {
           initGoogle();
@@ -68,13 +55,10 @@ function App() {
     }
   }, [token, activeTab]);
 
-  // --- ЛОГИКА АВТОРИЗАЦИИ И БД ---
   const handleGoogleLogin = async (response) => {
     try {
       const res = await fetch(`${API_URL}/auth/google`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ credential: response.credential }),
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ credential: response.credential }),
       });
       const data = await res.json();
       if (data.token) {
@@ -82,7 +66,6 @@ function App() {
         localStorage.setItem("user", JSON.stringify(data.user));
         setToken(data.token);
         setUser(data.user);
-        // После входа перекидываем в гардероб
         setActiveTab("wardrobe"); 
       }
     } catch (err) { console.error("Login error:", err); }
@@ -90,9 +73,7 @@ function App() {
 
   const fetchWardrobe = async () => {
     try {
-      const res = await fetch(`${API_URL}/wardrobe`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const res = await fetch(`${API_URL}/wardrobe`, { headers: { Authorization: `Bearer ${token}` } });
       const data = await res.json();
       setWardrobe(Array.isArray(data) ? data : []);
     } catch (err) { console.error("Fetch error:", err); }
@@ -102,37 +83,21 @@ function App() {
     e.preventDefault();
     if (!item.category || !user) return;
     setLoading(true);
-
     const formattedSeasons = item.seasons ? item.seasons.split(",").map(s => s.trim()).filter(Boolean) : [];
     const formattedOccasions = item.occasions ? item.occasions.split(",").map(o => o.trim()).filter(Boolean) : [];
 
     try {
       const res = await fetch(`${API_URL}/wardrobe`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({
-          ...item,
-          purchase_price: parseFloat(item.price) || 0,
-          seasons: formattedSeasons,
-          occasions: formattedOccasions
-        }),
+        method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ ...item, purchase_price: parseFloat(item.price) || 0, seasons: formattedSeasons, occasions: formattedOccasions }),
       });
-
       const data = await res.json();
-
-      if (res.status === 403) {
-        alert(`⛔ Лимит: ${data.error}`);
-        return;
-      }
-
+      if (res.status === 403) { alert(`⛔ Лимит: ${data.error}`); return; }
       if (res.ok) {
         setItem({ category: "Top", subcategory: "", color_primary: "", material: "", style: "Casual", price: "", seasons: "", occasions: "" });
         fetchWardrobe();
-      } else {
-        alert(`Ошибка сервера: ${data.error || 'Проверьте логи'}`);
-      }
-    } catch (err) { console.error(err); } 
-    finally { setLoading(false); }
+      } else { alert(`Ошибка: ${data.error}`); }
+    } catch (err) { console.error(err); } finally { setLoading(false); }
   };
 
   const handleLogout = () => {
@@ -140,33 +105,28 @@ function App() {
     setToken(null);
     setUser(null);
     setWardrobe([]);
-    setActiveTab("home"); // При выходе кидаем на главную
+    setActiveTab("home");
   };
 
-  // --- 2. РЕАЛЬНЫЙ ИИ (OpenAI Vision) ---
+  // --- 2. ЛОГИКА ИИ (ОТПРАВКА НА СЕРВЕР) ---
   const handleUploadLook = (e) => {
     const file = e.target.files[0];
     if (!file) return;
 
-    // Показываем фото мгновенно
     setUploadedLook(URL.createObjectURL(file));
-    setAiVerdict("⏳ Нейросеть GPT-4o анализирует ваш образ...");
+    setAiVerdict("⏳ ИИ-стилист анализирует ваш образ...");
 
-    // Конвертируем в Base64 и отправляем на бэкенд
     const reader = new FileReader();
     reader.readAsDataURL(file);
     reader.onloadend = async () => {
       const base64Image = reader.result;
-
       try {
         const res = await fetch(`${API_URL}/api/analyze`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ image: base64Image }),
         });
-
         const data = await res.json();
-
         if (res.ok) {
           setAiVerdict(data.verdict);
         } else {
@@ -179,20 +139,16 @@ function App() {
     };
   };
 
-  // --- ЭКРАНЫ (РЕНДЕР) ---
-  
   const renderHome = () => (
     <div style={contentStyle}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
         <div>
-          {/* Если юзер не залогинен, показываем общее приветствие */}
           <h2 style={{ margin: 0 }}>{token ? `Привет, ${user?.name?.split(' ')[0]}! 👋` : 'Стиль от ИИ 👋'}</h2>
           <p style={{ margin: 0, opacity: 0.6, fontSize: '14px' }}>{token ? 'Готов сиять сегодня?' : 'Оцени свой лук бесплатно'}</p>
         </div>
         {user?.picture && <img src={user.picture} alt="Avatar" style={{ width: '40px', borderRadius: '50%', border: '2px solid #00e6b8' }} />}
       </div>
 
-      {/* Сториз */}
       <div style={storiesContainerStyle}>
         {onboardingStories.map(story => (
           <div key={story.id} style={storyCircleWrapperStyle} onClick={() => setActiveStory(story)}>
@@ -202,7 +158,6 @@ function App() {
         ))}
       </div>
 
-      {/* Модалка для Сториз */}
       {activeStory && (
         <div style={storyModalOverlayStyle} onClick={() => setActiveStory(null)}>
           <div style={storyModalStyle} onClick={e => e.stopPropagation()}>
@@ -214,7 +169,6 @@ function App() {
         </div>
       )}
 
-      {/* Блок Оценки (Доступен всем) */}
       <div style={aiBannerStyle}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
           <div style={{ fontSize: '40px' }}>✨</div>
@@ -223,32 +177,36 @@ function App() {
             <p style={{ margin: 0, fontSize: '12px', opacity: 0.8 }}>Загрузи фото для разбора</p>
           </div>
         </div>
-
         <input type="file" accept="image/*" ref={fileInputRef} onChange={handleUploadLook} style={{ display: 'none' }} />
-        
         <button onClick={() => fileInputRef.current.click()} style={{ ...buttonStyle(false), width: '100%', marginTop: '15px', background: '#fff' }}>
           📸 Камера / Галерея
         </button>
 
         {uploadedLook && (
-          <div style={{ marginTop: '15px', background: 'rgba(0,0,0,0.1)', padding: '10px', borderRadius: '12px', textAlign: 'center' }}>
-            <img src={uploadedLook} alt="Мой лук" style={{ width: '100%', borderRadius: '8px', marginBottom: '10px', maxHeight: '300px', objectFit: 'cover' }} />
-            <p style={{ margin: 0, fontSize: '14px', fontWeight: 'bold', color: '#0b0c10', whiteSpace: 'pre-line', textAlign: 'left' }}>{aiVerdict}</p>
+          <div style={{ marginTop: '15px', background: 'rgba(0,0,0,0.1)', padding: '15px', borderRadius: '12px' }}>
+            <img src={uploadedLook} alt="Мой лук" style={{ width: '100%', borderRadius: '8px', marginBottom: '15px', maxHeight: '400px', objectFit: 'cover' }} />
+            {/* Обновили стили для красивого отображения длинного ответа ИИ */}
+            <div style={{ fontSize: '14px', color: '#0b0c10', whiteSpace: 'pre-wrap', textAlign: 'left', lineHeight: '1.6' }}>
+              {aiVerdict === "⏳ ИИ-стилист анализирует ваш образ..." ? (
+                <div style={{ textAlign: 'center', fontWeight: 'bold' }}>{aiVerdict}</div>
+              ) : (
+                aiVerdict
+              )}
+            </div>
           </div>
         )}
       </div>
 
       <h3 style={{ marginTop: '30px', marginBottom: '15px' }}>Подобрать образ для:</h3>
       <div style={gridStyle}>
-        <div style={occasionCardStyle} onClick={() => alert("Функция генерации из базового гардероба скоро будет доступна!")}><div style={iconCircleStyle}>💼</div><span style={{ fontWeight: 'bold' }}>Работа</span></div>
-        <div style={occasionCardStyle} onClick={() => alert("Функция генерации из базового гардероба скоро будет доступна!")}><div style={iconCircleStyle}>🪩</div><span style={{ fontWeight: 'bold' }}>Вечеринка</span></div>
-        <div style={occasionCardStyle} onClick={() => alert("Функция генерации из базового гардероба скоро будет доступна!")}><div style={iconCircleStyle}>👟</div><span style={{ fontWeight: 'bold' }}>Прогулка</span></div>
-        <div style={occasionCardStyle} onClick={() => alert("Функция генерации из базового гардероба скоро будет доступна!")}><div style={iconCircleStyle}>🥂</div><span style={{ fontWeight: 'bold' }}>Мероприятие</span></div>
+        <div style={occasionCardStyle} onClick={() => alert("Функция генерации скоро будет доступна!")}><div style={iconCircleStyle}>💼</div><span style={{ fontWeight: 'bold' }}>Работа</span></div>
+        <div style={occasionCardStyle} onClick={() => alert("Функция генерации скоро будет доступна!")}><div style={iconCircleStyle}>🪩</div><span style={{ fontWeight: 'bold' }}>Вечеринка</span></div>
+        <div style={occasionCardStyle} onClick={() => alert("Функция генерации скоро будет доступна!")}><div style={iconCircleStyle}>👟</div><span style={{ fontWeight: 'bold' }}>Прогулка</span></div>
+        <div style={occasionCardStyle} onClick={() => alert("Функция генерации скоро будет доступна!")}><div style={iconCircleStyle}>🥂</div><span style={{ fontWeight: 'bold' }}>Мероприятие</span></div>
       </div>
     </div>
   );
 
-  // 3. ЗАГЛУШКИ ДЛЯ НЕАВТОРИЗОВАННЫХ ПОЛЬЗОВАТЕЛЕЙ
   const renderLoginPrompt = (title, icon) => (
     <div style={contentStyle}>
       <h2>{title}</h2>
@@ -279,14 +237,13 @@ function App() {
               <input placeholder="Цена покупки *" type="number" value={item.price} onChange={e => setItem({...item, price: e.target.value})} style={inputStyle} required />
             </div>
             <div style={{ marginBottom: '15px', borderLeft: '3px solid #00e6b8', paddingLeft: '10px' }}>
-              <p style={{ margin: '0 0 5px 0', fontSize: '12px', color: '#00e6b8' }}>Дополнительно для ИИ</p>
+              <p style={{ margin: '0 0 5px 0', fontSize: '12px', color: '#00e6b8' }}>Дополнительно</p>
               <input placeholder="Материал (Хлопок, Шерсть)" value={item.material} onChange={e => setItem({...item, material: e.target.value})} style={inputStyle} />
               <input placeholder="Сезоны (Зима, Лето)" value={item.seasons} onChange={e => setItem({...item, seasons: e.target.value})} style={inputStyle} />
             </div>
             <button type="submit" disabled={loading} style={buttonStyle(loading)}>{loading ? "Сохранение..." : "Добавить в шкаф"}</button>
           </form>
         </div>
-
         <div style={gridStyle}>
           {wardrobe.map(i => (
             <div key={i.id} style={itemCardStyle}>
@@ -306,15 +263,8 @@ function App() {
       <div style={contentStyle}>
         <h2>Избранные луки</h2>
         {favorites.length === 0 ? (
-          <div style={{ textAlign: 'center', opacity: 0.5, marginTop: '50px' }}>
-            <span style={{ fontSize: '40px' }}>🤍</span>
-            <p>Вы пока не сохранили ни одного образа.</p>
-          </div>
-        ) : (
-          <div style={gridStyle}>
-            {/* Будущие карточки */}
-          </div>
-        )}
+          <div style={{ textAlign: 'center', opacity: 0.5, marginTop: '50px' }}><span style={{ fontSize: '40px' }}>🤍</span><p>Вы пока не сохранили ни одного образа.</p></div>
+        ) : (<div style={gridStyle}></div>)}
       </div>
     );
   };
@@ -326,7 +276,6 @@ function App() {
         <div style={{ ...cardStyle, textAlign: 'center' }}>
           <h3>Вход в систему</h3>
           <p style={{ opacity: 0.7 }}>Синхронизируйте свой гардероб</p>
-          {/* Кнопка Google отрендерится здесь благодаря useEffect */}
           <div id="googleSignInDiv" style={{ display: 'flex', justifyContent: 'center', marginTop: '30px', minHeight: '40px' }}></div>
         </div>
       ) : (
@@ -343,8 +292,6 @@ function App() {
     </div>
   );
 
-  // --- ГЛАВНЫЙ РЕНДЕР ПРИЛОЖЕНИЯ ---
-  // Мы больше не блокируем вход! Сразу рисуем интерфейс с навигацией.
   return (
     <div style={appWrapperStyle}>
       <div style={scrollableAreaStyle}>
@@ -353,7 +300,6 @@ function App() {
         {activeTab === "favorites" && renderFavorites()}
         {activeTab === "profile" && renderProfile()}
       </div>
-
       <div style={bottomNavStyle}>
         <div style={navItemStyle(activeTab === "home")} onClick={() => setActiveTab("home")}><span>🏠</span><br/>Главная</div>
         <div style={navItemStyle(activeTab === "favorites")} onClick={() => setActiveTab("favorites")}><span>🤍</span><br/>Избранные</div>
@@ -370,25 +316,19 @@ const appWrapperStyle = { height: "100vh", display: "flex", flexDirection: "colu
 const scrollableAreaStyle = { flex: 1, overflowY: "auto", paddingBottom: "80px" }; 
 const contentStyle = { padding: "20px", maxWidth: "500px", margin: "0 auto" };
 const cardStyle = { background: "#151822", padding: "20px", borderRadius: "16px", marginBottom: "20px", border: "1px solid #222" };
-
 const inputStyle = { width: "100%", padding: "12px", borderRadius: "8px", border: "1px solid #333", background: "#1c1f26", color: "#fff", marginBottom: "10px", outline: "none", boxSizing: "border-box" };
 const formStyle = { display: 'flex', flexDirection: 'column' };
 const buttonStyle = (loading) => ({ padding: "14px", borderRadius: "8px", border: "none", background: loading ? "#444" : "#00e6b8", color: "#000", fontWeight: "bold", cursor: "pointer", transition: "0.3s" });
-
 const gridStyle = { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' };
 const itemCardStyle = { background: "#151822", padding: "15px", borderRadius: "12px", border: "1px solid #222", display: 'flex', flexDirection: 'column', gap: '4px' };
 const cpwTagStyle = { marginTop: '8px', color: '#00e6b8', fontSize: '12px', fontWeight: 'bold' };
-
 const tierBadgeStyle = { background: 'rgba(0, 230, 184, 0.1)', color: '#00e6b8', padding: '4px 8px', borderRadius: '6px', fontSize: '10px', fontWeight: 'bold' };
 const logoutButtonStyle = { background: "none", color: "#ff4d4d", border: "1px solid #ff4d4d", padding: "10px 20px", borderRadius: "8px", cursor: "pointer", width: "100%" };
-
 const bottomNavStyle = { position: 'fixed', bottom: 0, left: 0, right: 0, background: '#151822', borderTop: '1px solid #222', display: 'flex', justifyContent: 'space-around', padding: '10px 0 20px 0', zIndex: 1000 };
 const navItemStyle = (isActive) => ({ textAlign: 'center', fontSize: '10px', color: isActive ? '#00e6b8' : '#888', cursor: 'pointer', opacity: isActive ? 1 : 0.6, transition: '0.2s' });
-
 const aiBannerStyle = { background: 'linear-gradient(135deg, #00e6b8 0%, #00b38f 100%)', padding: '20px', borderRadius: '16px', color: '#0b0c10', boxShadow: '0 10px 20px rgba(0, 230, 184, 0.2)' };
 const occasionCardStyle = { background: '#151822', padding: '15px', borderRadius: '16px', border: '1px solid #222', display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: '5px', cursor: 'pointer', transition: '0.2s', boxShadow: '0 4px 10px rgba(0,0,0,0.3)' };
 const iconCircleStyle = { background: '#1c1f26', width: '50px', height: '50px', borderRadius: '50%', display: 'flex', justifyContent: 'center', alignItems: 'center', fontSize: '24px', marginBottom: '5px', border: '1px solid #333' };
-
 const storiesContainerStyle = { display: 'flex', gap: '15px', overflowX: 'auto', paddingBottom: '10px', marginBottom: '20px', scrollbarWidth: 'none' };
 const storyCircleWrapperStyle = { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '5px', minWidth: '70px', cursor: 'pointer' };
 const storyCircleStyle = { width: '64px', height: '64px', borderRadius: '50%', background: '#151822', border: '2px solid #00e6b8', display: 'flex', justifyContent: 'center', alignItems: 'center', fontSize: '28px', padding: '2px' };
