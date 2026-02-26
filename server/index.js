@@ -265,6 +265,47 @@ app.get("/wardrobe", authenticateToken, async (req, res) => {
   }
 });
 
+// --- ОБНОВЛЕНИЕ ВЕЩИ (EDIT) ---
+app.put("/wardrobe/:id", authenticateToken, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const userId = req.user.id;
+      const { category, subcategory, color_primary, material, style, purchase_price, seasons, occasions } = req.body;
+  
+      const result = await pool.query(
+        `UPDATE wardrobe_items 
+         SET category = $1, subcategory = $2, color_primary = $3, material = $4, style = $5, purchase_price = $6, seasons = $7, occasions = $8
+         WHERE id = $9 AND user_id = $10 RETURNING *`,
+        [category, subcategory, color_primary, material, style, purchase_price || 0, seasons, occasions, id, userId]
+      );
+  
+      if (result.rows.length === 0) return res.status(404).json({ error: "Вещь не найдена" });
+      res.json(result.rows[0]);
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: "Ошибка обновления вещи" });
+    }
+  });
+  
+  // --- УДАЛЕНИЕ ВЕЩИ (DELETE) ---
+  app.delete("/wardrobe/:id", authenticateToken, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const userId = req.user.id;
+  
+      const result = await pool.query(
+        `DELETE FROM wardrobe_items WHERE id = $1 AND user_id = $2 RETURNING *`,
+        [id, userId]
+      );
+  
+      if (result.rows.length === 0) return res.status(404).json({ error: "Вещь не найдена" });
+      res.json({ message: "Удалено успешно" });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: "Ошибка удаления вещи" });
+    }
+  });
+
 // РОУТ 3: СОХРАНЕНИЕ ПРЕДПОЧТЕНИЙ СТИЛЯ В ПРОФИЛЬ
 app.put("/api/user/preferences", authenticateToken, async (req, res) => {
     try {
