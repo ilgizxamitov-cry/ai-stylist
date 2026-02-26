@@ -7,6 +7,7 @@ import { fileURLToPath } from "url";
 import jwt from "jsonwebtoken";
 import { OAuth2Client } from "google-auth-library";
 import pkg from "pg";
+import { createClient } from "@supabase/supabase-js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -17,10 +18,8 @@ const app = express();
 
 const PORT = process.env.PORT || 8080; 
 
-// --- 1. ИНИЦИАЛИЗАЦИЯ СЕРВИСОВ ---
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
-// Подключаем OpenRouter
 const openai = new OpenAI({
   baseURL: "https://openrouter.ai/api/v1",
   apiKey: process.env.OPENROUTER_API_KEY,
@@ -35,9 +34,11 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false },
 });
 
+// Инициализация Supabase Storage
+const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY);
+
 const TIER_LIMITS = { free: 20, paid: 200, vip: Infinity };
 
-// --- 2. БАЗА ДАННЫХ ---
 const initDB = async () => {
   try {
     await pool.query(`
@@ -48,6 +49,7 @@ const initDB = async () => {
         name VARCHAR(255),
         picture TEXT,
         subscription_tier TEXT DEFAULT 'free',
+        style_preferences TEXT[] DEFAULT '{}',
         created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
       );
     `);
@@ -80,7 +82,6 @@ const initDB = async () => {
 };
 initDB();
 
-// --- 3. MIDDLEWARE ---
 app.use(cors());
 app.use(express.json({ limit: "10mb" }));
 
@@ -104,8 +105,9 @@ app.post('/api/analyze', async (req, res) => {
     const { image } = req.body; 
     if (!image) return res.status(400).json({ error: "Картинка не предоставлена" });
 
+    // ВАЖНО: Для оценки фото нужна Vision-модель. Qwen Instruct слепая, поэтому здесь Gemini Flash
     const response = await openai.chat.completions.create({
-      model: "qwen/qwen3-next-80b-a3b-instruct:free", 
+      model: "google/gemini-2.5-flash:free", 
       messages: [
         {
           role: "user",
@@ -157,7 +159,7 @@ CHAIN OF THOUGHTS:
   }
 });
 
-// РОУТ 2: ИИ ГЕНЕРАЦИЯ ОБРАЗА (Которого не хватало!)
+// РОУТ 2: ИИ ГЕНЕРАЦИЯ ОБРАЗА
 app.post('/api/generate-outfit', async (req, res) => {
   try {
     const { occasion, wardrobe, preferences } = req.body;
@@ -199,7 +201,60 @@ app.post('/api/generate-outfit', async (req, res) => {
   }
 });
 
-// АВТОРИЗАЦИЯ И БАЗА
+// РАСПОЗНАВАНИЯ ВЕЩИ И СОХРАНЕНИЯ В SUPABASE
+app.post('/api/auto-tag-item', authenticateToken, async (req, res) => {
+  try {
+    const { imageBase64 } = req.body;
+    if (!imageBase64) return res.status(400).json({ error: "Нет картинки" });
+
+    const prompt = `Распознай вещь на фото и верни строго валидный JSON. 
+Используй ТОЛЬКО эти значения для ключей:
+- category: ["Верх", "Низ", "Обувь", "Верхняя одежда", "Аксессуары", "Сумка"]
+- color_primary: ["Черный", "Белый", "Серый", "Бежевый", "Синий", "Голубой", "Красный", "Зеленый", "Коричневый", "Желтый", "Розовый", "Разноцветный"]
+- material: ["Хлопок", "Деним", "Шерсть", "Кожа", "Лен", "Синтетика", "Шелк", "Трикотаж", "Смесовая ткань", "Неизвестно"]
+- seasons: ["Лето", "Зима", "Демисезон", "Мультисезон"]
+
+Формат ответа СТРОГО:
+{
+  "category": "...",
+  "subcategory": "Например: Футболка, Джинсы, Кроссовки",
+  "color_primary": "...",
+  "material": "...",
+  "seasons": "..."
+}`;
+
+    const aiResponse = await openai.chat.completions.create({
+      model: "google/gemini-2.5-flash:free", // Используем бесплатную Vision модель
+      messages: [
+        { role: "user", content: [{ type: "text", text: prompt }, { type: "image_url", image_url: { url: imageBase64 } }] }
+      ]
+    });
+
+    let cleanJson = aiResponse.choices[0].message.content.replace(/```json/g, '').replace(/```/g, '').trim();
+    const itemData = JSON.parse(cleanJson);
+
+    // Сохраняем картинку в Supabase Storage
+    const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, ""); 
+    const buffer = Buffer.from(base64Data, 'base64');
+    const fileName = `item_${Date.now()}.png`;
+
+    const { data: uploadData, error: uploadError } = await supabase
+      .storage
+      .from('wardrobe_images') 
+      .upload(fileName, buffer, { contentType: 'image/png' });
+
+    if (uploadError) throw uploadError;
+
+    const { data: publicUrlData } = supabase.storage.from('wardrobe_images').getPublicUrl(fileName);
+    
+    res.json({ item: itemData, imageUrl: publicUrlData.publicUrl });
+
+  } catch (error) {
+    console.error("Auto-tag error:", error);
+    res.status(500).json({ error: "Ошибка распознавания вещи" });
+  }
+});
+
 app.post("/auth/google", async (req, res) => {
   try {
     const { credential } = req.body;
@@ -228,7 +283,8 @@ app.post("/auth/google", async (req, res) => {
 app.post("/wardrobe", authenticateToken, async (req, res) => {
   try {
     const userId = req.user.id;
-    const { category, subcategory, color_primary, material, style, purchase_price, seasons, occasions } = req.body;
+    // ТЕПЕРЬ СОХРАНЯЕМ ЕЩЕ И ССЫЛКУ НА КАРТИНКУ
+    const { category, subcategory, color_primary, material, style, purchase_price, seasons, occasions, image_url } = req.body;
 
     const userStatus = await pool.query(
       `SELECT subscription_tier, (SELECT COUNT(*) FROM wardrobe_items WHERE user_id = $1) as current_count FROM users WHERE id = $1`, [userId]
@@ -242,9 +298,9 @@ app.post("/wardrobe", authenticateToken, async (req, res) => {
     }
 
     const result = await pool.query(
-      `INSERT INTO wardrobe_items (user_id, category, subcategory, color_primary, material, style, purchase_price, seasons, occasions)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
-      [userId, category, subcategory, color_primary, material, style, purchase_price || 0, seasons, occasions]
+      `INSERT INTO wardrobe_items (user_id, category, subcategory, color_primary, material, style, purchase_price, seasons, occasions, image_url)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
+      [userId, category, subcategory, color_primary, material, style, purchase_price || 0, seasons, occasions, image_url]
     );
     res.json(result.rows[0]);
   } catch (error) {
@@ -270,13 +326,14 @@ app.put("/wardrobe/:id", authenticateToken, async (req, res) => {
     try {
       const { id } = req.params;
       const userId = req.user.id;
-      const { category, subcategory, color_primary, material, style, purchase_price, seasons, occasions } = req.body;
+      // ОБНОВЛЯЕМ И КАРТИНКУ ТОЖЕ
+      const { category, subcategory, color_primary, material, style, purchase_price, seasons, occasions, image_url } = req.body;
   
       const result = await pool.query(
         `UPDATE wardrobe_items 
-         SET category = $1, subcategory = $2, color_primary = $3, material = $4, style = $5, purchase_price = $6, seasons = $7, occasions = $8
-         WHERE id = $9 AND user_id = $10 RETURNING *`,
-        [category, subcategory, color_primary, material, style, purchase_price || 0, seasons, occasions, id, userId]
+         SET category = $1, subcategory = $2, color_primary = $3, material = $4, style = $5, purchase_price = $6, seasons = $7, occasions = $8, image_url = $9
+         WHERE id = $10 AND user_id = $11 RETURNING *`,
+        [category, subcategory, color_primary, material, style, purchase_price || 0, seasons, occasions, image_url, id, userId]
       );
   
       if (result.rows.length === 0) return res.status(404).json({ error: "Вещь не найдена" });
@@ -306,7 +363,7 @@ app.put("/wardrobe/:id", authenticateToken, async (req, res) => {
     }
   });
 
-// РОУТ 3: СОХРАНЕНИЕ ПРЕДПОЧТЕНИЙ СТИЛЯ В ПРОФИЛЬ
+  // РОУТ 3: СОХРАНЕНИЕ ПРЕДПОЧТЕНИЙ СТИЛЯ В ПРОФИЛЬ
 app.put("/api/user/preferences", authenticateToken, async (req, res) => {
     try {
       const { preferences } = req.body;
@@ -325,7 +382,7 @@ app.put("/api/user/preferences", authenticateToken, async (req, res) => {
     }
   });
 
-// --- СТАРТ СЕРВЕРА ---
+  // Запуск сервера
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`🚀 AI Stylist Server запущен на порту ${PORT}`);
 });

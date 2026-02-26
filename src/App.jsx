@@ -15,7 +15,7 @@ const onboardingStories = [
   { id: 4, icon: "🚀", title: "Безлимит", text: "Попробуйте генерацию луков прямо сейчас! Без регистрации мы используем базу типичного гардероба." }
 ];
 
-const initialItemState = { category: "Верх", subcategory: "", color_primary: "Черный", material: "Хлопок", style: "Casual", price: "", seasons: "Мультисезон", occasions: "" };
+const initialItemState = { category: "Верх", subcategory: "", color_primary: "Черный", material: "Хлопок", style: "Casual", price: "", seasons: "Мультисезон", occasions: "", image_url: null };
 
 function App() {
   const [user, setUser] = useState(null);
@@ -38,9 +38,13 @@ function App() {
   const [preferences, setPreferences] = useState([]);
   const [isSavingPrefs, setIsSavingPrefs] = useState(false);
 
-  // Состояния формы
+  // Состояния формы (CRUD)
   const [item, setItem] = useState(initialItemState);
-  const [editingId, setEditingId] = useState(null); // ID вещи, которую мы сейчас редактируем
+  const [editingId, setEditingId] = useState(null);
+
+  // НОВОЕ СОСТОЯНИЕ: Для сканирования вещи
+  const itemPhotoInputRef = useRef(null);
+  const [isScanningItem, setIsScanningItem] = useState(false);
 
   useEffect(() => {
     const savedUser = localStorage.getItem("user");
@@ -98,6 +102,50 @@ function App() {
     } catch (err) { console.error("Fetch error:", err); }
   };
 
+  // --- МАГИЯ: Распознавание вещи по фото ---
+  const handleItemPhotoSelect = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    setIsScanningItem(true);
+    
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onloadend = async () => {
+      const base64Image = reader.result;
+      
+      try {
+        const res = await fetch(`${API_URL}/api/auto-tag-item`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ imageBase64: base64Image })
+        });
+        
+        const data = await res.json();
+        
+        if (res.ok) {
+          setItem(prev => ({
+            ...prev,
+            category: data.item.category || prev.category,
+            subcategory: data.item.subcategory || prev.subcategory,
+            color_primary: data.item.color_primary || prev.color_primary,
+            material: data.item.material || prev.material,
+            seasons: data.item.seasons || prev.seasons,
+            image_url: data.imageUrl // Сохраняем ссылку из Supabase
+          }));
+          alert("✨ ИИ успешно распознал вещь!");
+        } else {
+          alert(`Ошибка: ${data.error}`);
+        }
+      } catch (error) {
+        console.error("Scan error:", error);
+        alert("Не удалось связаться с сервером для распознавания.");
+      } finally {
+        setIsScanningItem(false);
+      }
+    };
+  };
+
   // --- CRUD: СОЗДАНИЕ И ОБНОВЛЕНИЕ ВЕЩИ ---
   const handleAddItem = async (e) => {
     e.preventDefault();
@@ -149,10 +197,11 @@ function App() {
       style: itemToEdit.style || "Casual",
       price: itemToEdit.purchase_price || "",
       seasons: itemToEdit.seasons && itemToEdit.seasons.length > 0 ? itemToEdit.seasons.join(", ") : "Мультисезон",
-      occasions: itemToEdit.occasions ? itemToEdit.occasions.join(", ") : ""
+      occasions: itemToEdit.occasions ? itemToEdit.occasions.join(", ") : "",
+      image_url: itemToEdit.image_url || null
     });
     setEditingId(itemToEdit.id);
-    window.scrollTo({ top: 0, behavior: "smooth" }); // Скроллим наверх к форме
+    window.scrollTo({ top: 0, behavior: "smooth" }); 
   };
 
   const handleCancelEdit = () => {
@@ -320,28 +369,44 @@ function App() {
     </div>
   );
 
-  // --- ОБНОВЛЕННЫЙ РЕНДЕР ГАРДЕРОБА (С SELECT И КНОПКАМИ) ---
   const renderWardrobe = () => {
     if (!token) return renderLoginPrompt("Гардероб", "👕");
     return (
       <div style={contentStyle}>
         <h2>Гардероб</h2>
         
-        {/* ФОРМА (С выпадающими списками) */}
         <div style={{...cardStyle, border: editingId ? '1px solid #00e6b8' : '1px solid #222'}}>
-          <h3 style={{ marginBottom: "15px" }}>{editingId ? "✏️ Редактировать вещь" : "➕ Добавить вещь"}</h3>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: "15px" }}>
+            <h3 style={{ margin: 0 }}>{editingId ? "✏️ Редактировать вещь" : "➕ Добавить вещь"}</h3>
+            
+            {/* КНОПКА МАГИЧЕСКОГО ФОТО */}
+            <input type="file" accept="image/*" ref={itemPhotoInputRef} onChange={handleItemPhotoSelect} style={{ display: 'none' }} />
+            <button 
+              type="button" 
+              onClick={() => itemPhotoInputRef.current.click()} 
+              disabled={isScanningItem}
+              style={{ background: 'linear-gradient(135deg, #00e6b8 0%, #00b38f 100%)', color: '#000', border: 'none', borderRadius: '8px', padding: '8px 12px', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer' }}
+            >
+              {isScanningItem ? "⏳ ИИ Думает..." : "📸 Заполнить по фото"}
+            </button>
+          </div>
+
+          {item.image_url && (
+            <div style={{ marginBottom: '15px', textAlign: 'center' }}>
+              <img src={item.image_url} alt="Вещь" style={{ height: '100px', borderRadius: '8px', objectFit: 'cover' }} />
+            </div>
+          )}
+
           <form onSubmit={handleAddItem} style={formStyle}>
             <div style={{ marginBottom: '15px', borderLeft: '3px solid #ff4d4d', paddingLeft: '10px' }}>
               <p style={{ margin: '0 0 5px 0', fontSize: '12px', color: '#ff4d4d' }}>Обязательно</p>
               
-              {/* Селект Категории */}
               <select value={item.category} onChange={e => setItem({...item, category: e.target.value})} style={inputStyle} required>
                 {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
               </select>
               
               <input placeholder="Что это? (Худи, Джинсы) *" value={item.subcategory} onChange={e => setItem({...item, subcategory: e.target.value})} style={inputStyle} required />
               
-              {/* Селект Цвета */}
               <select value={item.color_primary} onChange={e => setItem({...item, color_primary: e.target.value})} style={inputStyle} required>
                 {COLORS.map(c => <option key={c} value={c}>{c}</option>)}
               </select>
@@ -352,12 +417,10 @@ function App() {
             <div style={{ marginBottom: '15px', borderLeft: '3px solid #00e6b8', paddingLeft: '10px' }}>
               <p style={{ margin: '0 0 5px 0', fontSize: '12px', color: '#00e6b8' }}>Дополнительно для ИИ</p>
               
-              {/* Селект Материала */}
               <select value={item.material} onChange={e => setItem({...item, material: e.target.value})} style={inputStyle}>
                 {MATERIALS.map(c => <option key={c} value={c}>{c}</option>)}
               </select>
 
-              {/* Селект Сезона */}
               <select value={item.seasons} onChange={e => setItem({...item, seasons: e.target.value})} style={inputStyle}>
                 {SEASONS.map(c => <option key={c} value={c}>{c}</option>)}
               </select>
@@ -374,10 +437,12 @@ function App() {
           </form>
         </div>
 
-        {/* СПИСОК ВЕЩЕЙ С КНОПКАМИ */}
         <div style={gridStyle}>
           {wardrobe.map(i => (
-            <div key={i.id} style={{...itemCardStyle, position: 'relative'}}>
+            <div key={i.id} style={{...itemCardStyle, position: 'relative', overflow: 'hidden'}}>
+              {i.image_url && (
+                 <img src={i.image_url} alt="Вещь" style={{ width: '100%', height: '100px', objectFit: 'cover', borderRadius: '8px', marginBottom: '8px' }} />
+              )}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                 <span style={{ fontWeight: "bold" }}>{i.subcategory || i.category}</span>
                 <div style={{ display: 'flex', gap: '5px' }}>
