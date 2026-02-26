@@ -107,7 +107,7 @@ app.post('/api/analyze', async (req, res) => {
 
     // ВАЖНО: Для оценки фото нужна Vision-модель. Qwen Instruct слепая, поэтому здесь Gemini Flash
     const response = await openai.chat.completions.create({
-      model: "google/gemini-2.5-flash:free", 
+      model: "nvidia/nemotron-nano-12b-v2-vl:free", 
       messages: [
         {
           role: "user",
@@ -189,7 +189,7 @@ app.post('/api/generate-outfit', async (req, res) => {
     5. 🕶 Аксессуары: ...`;
 
     const response = await openai.chat.completions.create({
-      model: "qwen/qwen3-next-80b-a3b-instruct:free", 
+      model: "nvidia/nemotron-nano-12b-v2-vl:free", 
       messages: [{ role: "user", content: prompt }],
       max_tokens: 800,
     });
@@ -224,7 +224,7 @@ app.post('/api/auto-tag-item', authenticateToken, async (req, res) => {
 }`;
 
     const aiResponse = await openai.chat.completions.create({
-      model: "google/gemini-2.5-flash:free", // Используем бесплатную Vision модель
+      model: "meta-llama/llama-3.2-11b-vision-instruct", // Используем бесплатную Vision модель
       messages: [
         { role: "user", content: [{ type: "text", text: prompt }, { type: "image_url", image_url: { url: imageBase64 } }] }
       ]
