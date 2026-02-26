@@ -105,7 +105,7 @@ app.post('/api/analyze', async (req, res) => {
     if (!image) return res.status(400).json({ error: "Картинка не предоставлена" });
 
     const response = await openai.chat.completions.create({
-      model: "openai/gpt-4o-mini", 
+      model: "qwen/qwen3-next-80b-a3b-instruct:free", 
       messages: [
         {
           role: "user",
@@ -160,15 +160,23 @@ CHAIN OF THOUGHTS:
 // РОУТ 2: ИИ ГЕНЕРАЦИЯ ОБРАЗА (Которого не хватало!)
 app.post('/api/generate-outfit', async (req, res) => {
   try {
-    const { occasion, wardrobe } = req.body;
+    const { occasion, wardrobe, preferences } = req.body;
     
-    let prompt = `Ты профессиональный фэшн-стилист. Пользователь просит собрать стильный образ для ситуации: "${occasion}".\n\n`;
+    // 1. Базовая роль
+    let prompt = `Ты топовый персональный стилист. Твоя задача — собрать актуальный, современный образ для ситуации: "${occasion}". Никаких устаревших трендов. Учитывай сочетаемость текстур (например, шерсть и деним) и правило трех цветов.\n\n`;
 
+    // 2. Учитываем предпочтения (ЕСЛИ ОНИ ЕСТЬ)
+    if (preferences && preferences.length > 0) {
+      prompt += `ВНИМАНИЕ НА СТИЛЬ: Клиент предпочитает следующие эстетики: ${preferences.join(', ')}. Учитывай это при создании образа!\n\n`;
+    }
+
+    // 3. Учитываем гардероб (ЕСЛИ ОН ЕСТЬ)
     if (wardrobe && wardrobe.length > 0) {
-      const wardrobeText = wardrobe.map(w => `${w.subcategory} (цвет: ${w.color_primary}, материал: ${w.material || 'любой'})`).join('; ');
-      prompt += `В личном гардеробе пользователя есть следующие вещи: ${wardrobeText}.\nПостарайся собрать основу образа именно из этих вещей. Если не хватает акцентов, предложи, что можно докупить.\n\n`;
+      const wardrobeText = wardrobe.map(w => `${w.subcategory} (цвет: ${w.color_primary}, материал: ${w.material || 'базовый'})`).join('; ');
+      prompt += `ВНИМАНИЕ! Ты ОБЯЗАН использовать вещи из личного гардероба клиента. Вот его вещи: [${wardrobeText}]. 
+Выбери основу образа (верх и низ) строго из этого списка! Если для идеального лука не хватает акцента (например, обуви или куртки), предложи, что конкретно стоит докупить.\n\n`;
     } else {
-      prompt += `У пользователя пока нет оцифрованного гардероба. Предложи идеальный, современный образ из универсального базового гардероба.\n\n`;
+      prompt += `У клиента пока пустой виртуальный шкаф. Предложи стильную капсулу из универсальных базовых вещей, которые легко найти в масс-маркете (Zara, Massimo Dutti, Uniqlo). Вещи должны быть взаимозаменяемыми.\n\n`;
     }
 
     prompt += `Ответ должен быть стильным, использовать эмодзи и быть структурированным:
@@ -179,7 +187,7 @@ app.post('/api/generate-outfit', async (req, res) => {
     5. 🕶 Аксессуары: ...`;
 
     const response = await openai.chat.completions.create({
-      model: "openai/gpt-4o-mini", 
+      model: "qwen/qwen3-next-80b-a3b-instruct:free", 
       messages: [{ role: "user", content: prompt }],
       max_tokens: 800,
     });
@@ -256,6 +264,25 @@ app.get("/wardrobe", authenticateToken, async (req, res) => {
     res.status(500).json({ error: "Ошибка загрузки гардероба" });
   }
 });
+
+// РОУТ 3: СОХРАНЕНИЕ ПРЕДПОЧТЕНИЙ СТИЛЯ В ПРОФИЛЬ
+app.put("/api/user/preferences", authenticateToken, async (req, res) => {
+    try {
+      const { preferences } = req.body;
+      
+      const result = await pool.query(
+        `UPDATE users SET style_preferences = $1 WHERE id = $2 RETURNING *`,
+        [preferences, req.user.id]
+      );
+      
+      // Возвращаем обновленного юзера (без лишних данных)
+      const updatedUser = result.rows[0];
+      res.json({ user: updatedUser });
+    } catch (error) {
+      console.error("Preferences Error:", error);
+      res.status(500).json({ error: "Ошибка сохранения предпочтений" });
+    }
+  });
 
 // --- СТАРТ СЕРВЕРА ---
 app.listen(PORT, "0.0.0.0", () => {
