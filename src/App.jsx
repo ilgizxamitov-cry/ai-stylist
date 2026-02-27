@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import imglyRemoveBackground from "@imgly/background-removal"; // НОВАЯ СТРОКА
+import { removeBackground } from "@imgly/background-removal";
 
 const API_URL = import.meta.env.VITE_API_URL || "https://ai-stylist-production-7f72.up.railway.app";
 
@@ -112,7 +112,7 @@ function App() {
     
     try {
       // 1. ВЫРЕЗАЕМ ФОН ПРЯМО В БРАУЗЕРЕ (0 рублей!)
-      const transparentBlob = await imglyRemoveBackground(file);
+      const transparentBlob = await removeBackground(file);
 
       // 2. Переводим результат в Base64
       const reader = new FileReader();
