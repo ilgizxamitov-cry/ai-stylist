@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef } from "react";
-import React, { useState, useEffect, useRef } from "react";
 import imglyRemoveBackground from "@imgly/background-removal"; // НОВАЯ СТРОКА
 
 const API_URL = import.meta.env.VITE_API_URL || "https://ai-stylist-production-7f72.up.railway.app";
