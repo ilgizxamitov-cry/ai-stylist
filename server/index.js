@@ -140,6 +140,43 @@ app.post('/api/auto-tag-item', authenticateToken, async (req, res) => {
   }
 });
 
+// --- МАГИЯ 3: РАСПОЗНАВАНИЕ ГОЛОСА (ТЕКСТА) ---
+app.post('/api/parse-voice', authenticateToken, async (req, res) => {
+    try {
+      const { text } = req.body;
+      if (!text) return res.status(400).json({ error: "Нет текста" });
+  
+      // Просим ИИ вытащить все вещи из текста
+      const prompt = `Пользователь надиктовал список одежды. Вытащи ВСЕ элементы одежды из текста и верни СТРОГО массив JSON объектов.
+  Используй ТОЛЬКО эти значения:
+  - category: ["Верх", "Низ", "Обувь", "Верхняя одежда", "Аксессуары", "Сумка"]
+  - color_primary: ["Черный", "Белый", "Серый", "Бежевый", "Синий", "Голубой", "Красный", "Зеленый", "Коричневый", "Желтый", "Розовый", "Разноцветный"]
+  - material: ["Хлопок", "Деним", "Шерсть", "Кожа", "Лен", "Синтетика", "Шелк", "Трикотаж", "Смесовая ткань", "Неизвестно"]
+  - seasons: ["Лето", "Зима", "Демисезон", "Мультисезон"]
+  
+  Формат ответа СТРОГО:
+  [
+    { "category": "...", "subcategory": "Например: Футболка, Джинсы", "color_primary": "...", "material": "...", "seasons": "..." }
+  ]
+  
+  Текст пользователя: "${text}"`;
+  
+      const aiResponse = await openai.chat.completions.create({
+        model: "openai/gpt-4o-mini", // Наш любимый быстрый и дешевый gpt-4o-mini
+        messages: [ { role: "user", content: prompt } ]
+      });
+  
+      let cleanJson = aiResponse.choices[0].message.content.replace(/```json/g, '').replace(/```/g, '').trim();
+      const itemsArray = JSON.parse(cleanJson);
+  
+      res.json({ items: itemsArray });
+  
+    } catch (error) {
+      console.error("Voice parse error:", error);
+      res.status(500).json({ error: "Ошибка парсинга голоса ИИ" });
+    }
+  });
+
 // --- РОУТЫ БД ---
 app.post("/auth/google", async (req, res) => { /*...*/ 
   const { credential } = req.body;

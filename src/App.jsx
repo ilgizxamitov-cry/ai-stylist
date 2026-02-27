@@ -47,6 +47,10 @@ function App() {
   const itemPhotoInputRef = useRef(null);
   const [isScanningItem, setIsScanningItem] = useState(false);
 
+  const [isListening, setIsListening] = useState(false);
+  const [voiceText, setVoiceText] = useState("");
+
+
   useEffect(() => {
     const savedUser = localStorage.getItem("user");
     if (token && savedUser) {
@@ -102,6 +106,83 @@ function App() {
       setWardrobe(Array.isArray(data) ? data : []);
     } catch (err) { console.error("Fetch error:", err); }
   };
+
+// --- МАГИЯ: ДОБАВЛЕНИЕ ГОЛОСОМ ---
+const handleVoiceAdd = () => {
+  // Проверяем поддержку микрофона браузером
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition) {
+    alert("Ваш браузер не поддерживает голосовой ввод. Попробуйте Chrome или Safari.");
+    return;
+  }
+
+  const recognition = new SpeechRecognition();
+  recognition.lang = 'ru-RU'; // Русский язык
+  recognition.interimResults = false;
+  
+  recognition.onstart = () => setIsListening(true);
+  
+  recognition.onerror = (event) => {
+    console.error("Speech error", event);
+    setIsListening(false);
+    alert("Ошибка микрофона. Убедитесь, что вы разрешили доступ к микрофону.");
+  };
+  
+  recognition.onend = () => setIsListening(false);
+
+  // Когда пользователь замолчал, обрабатываем текст
+  recognition.onresult = async (event) => {
+    const transcript = event.results[0][0].transcript;
+    setIsScanningItem(true); // Включаем "⏳ Думает..."
+    
+    try {
+      const res = await fetch(`${API_URL}/api/parse-voice`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ text: transcript })
+      });
+      
+      const data = await res.json();
+
+      if (res.ok && data.items && data.items.length > 0) {
+        const itemNames = data.items.map(i => `${i.color_primary} ${i.subcategory}`).join(', ');
+        
+        // Спрашиваем пользователя перед добавлением
+        if (window.confirm(`Вы сказали: "${transcript}"\n\nИИ распознал ${data.items.length} вещи:\n${itemNames}.\n\nДобавить их все в гардероб?`)) {
+          
+          // Массово сохраняем вещи в БД
+          for (const found of data.items) {
+            const payload = {
+              category: found.category || "Верх",
+              subcategory: found.subcategory || "Вещь",
+              color_primary: found.color_primary || "Черный",
+              material: found.material || "Хлопок",
+              style: "Casual",
+              purchase_price: 0,
+              seasons: [found.seasons || "Мультисезон"],
+              occasions: [],
+              image_url: null // При добавлении голосом картинки нет, ее можно добавить позже
+            };
+            await fetch(`${API_URL}/wardrobe`, {
+              method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+              body: JSON.stringify(payload)
+            });
+          }
+          fetchWardrobe(); // Обновляем шкаф
+          alert("✅ Все вещи добавлены в шкаф!");
+        }
+      } else {
+        alert("ИИ не смог найти одежду в вашем тексте.");
+      }
+    } catch (error) {
+      alert("Ошибка связи с сервером.");
+    } finally {
+      setIsScanningItem(false);
+    }
+  };
+
+  recognition.start(); // Включаем запись
+};
 
   // --- МАГИЯ: Распознавание вещи по фото ---
   const handleItemPhotoSelect = async (e) => {
@@ -378,69 +459,55 @@ function App() {
   );
 
   const renderWardrobe = () => {
-    if (!token) return renderLoginPrompt("Гардероб", "👕");
+    if (!token) return <div style={contentStyle}><h2>Гардероб</h2><button onClick={() => setActiveTab("profile")} style={buttonStyle(false)}>Войти в систему</button></div>;
     return (
       <div style={contentStyle}>
         <h2>Гардероб</h2>
         
         <div style={{...cardStyle, border: editingId ? '1px solid #00e6b8' : '1px solid #222'}}>
+          
+          {/* --- НАЧАЛО ОБНОВЛЕННОГО БЛОКА С КНОПКАМИ --- */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: "15px" }}>
-            <h3 style={{ margin: 0 }}>{editingId ? "✏️ Редактировать вещь" : "➕ Добавить вещь"}</h3>
+            <h3 style={{ margin: 0 }}>{editingId ? "✏️ Редактировать" : "➕ Добавить"}</h3>
             
-            {/* КНОПКА МАГИЧЕСКОГО ФОТО */}
-            <input type="file" accept="image/*" ref={itemPhotoInputRef} onChange={handleItemPhotoSelect} style={{ display: 'none' }} />
-            <button 
-              type="button" 
-              onClick={() => itemPhotoInputRef.current.click()} 
-              disabled={isScanningItem}
-              style={{ background: 'linear-gradient(135deg, #00e6b8 0%, #00b38f 100%)', color: '#000', border: 'none', borderRadius: '8px', padding: '8px 12px', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer' }}
-            >
-              {isScanningItem ? "⏳ ИИ Думает..." : "📸 Заполнить по фото"}
-            </button>
-          </div>
+            {/* Контейнер для двух кнопок: Фото и Голос */}
+            <div style={{ display: 'flex', gap: '8px' }}>
+              
+              {/* Скрытый инпут и кнопка для Фото */}
+              <input type="file" accept="image/*" ref={itemPhotoInputRef} onChange={handleItemPhotoSelect} style={{ display: 'none' }} />
+              <button 
+                type="button" 
+                onClick={() => itemPhotoInputRef.current.click()} 
+                disabled={isScanningItem || isListening} 
+                style={{ background: '#00e6b8', color: '#000', border: 'none', borderRadius: '8px', padding: '8px 12px', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer' }}
+              >
+                {isScanningItem ? "⏳..." : "📸 Фото"}
+              </button>
+              
+              {/* НОВАЯ КНОПКА МИКРОФОНА */}
+              <button 
+                type="button" 
+                onClick={handleVoiceAdd} 
+                disabled={isScanningItem || isListening} 
+                style={{ background: isListening ? '#ff4d4d' : '#333', color: '#fff', border: 'none', borderRadius: '8px', padding: '8px 12px', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer', transition: '0.3s' }}
+              >
+                {isListening ? "🔴 Слушаю..." : "🎙️ Голос"}
+              </button>
 
-          {item.image_url && (
-            <div style={{ marginBottom: '15px', textAlign: 'center' }}>
-              <img src={item.image_url} alt="Вещь" style={{ height: '100px', borderRadius: '8px', objectFit: 'cover' }} />
             </div>
-          )}
+          </div>
+          {/* --- КОНЕЦ ОБНОВЛЕННОГО БЛОКА --- */}
 
           <form onSubmit={handleAddItem} style={formStyle}>
-            <div style={{ marginBottom: '15px', borderLeft: '3px solid #ff4d4d', paddingLeft: '10px' }}>
-              <p style={{ margin: '0 0 5px 0', fontSize: '12px', color: '#ff4d4d' }}>Обязательно</p>
-              
-              <select value={item.category} onChange={e => setItem({...item, category: e.target.value})} style={inputStyle} required>
-                {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-              </select>
-              
-              <input placeholder="Что это? (Худи, Джинсы) *" value={item.subcategory} onChange={e => setItem({...item, subcategory: e.target.value})} style={inputStyle} required />
-              
-              <select value={item.color_primary} onChange={e => setItem({...item, color_primary: e.target.value})} style={inputStyle} required>
-                {COLORS.map(c => <option key={c} value={c}>{c}</option>)}
-              </select>
-              
-              <input placeholder="Цена покупки (₽) *" type="number" value={item.price} onChange={e => setItem({...item, price: e.target.value})} style={inputStyle} required />
-            </div>
+            <select value={item.category} onChange={e => setItem({...item, category: e.target.value})} style={inputStyle} required>{CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}</select>
+            <input placeholder="Что это? (Худи, Джинсы) *" value={item.subcategory} onChange={e => setItem({...item, subcategory: e.target.value})} style={inputStyle} required />
+            <select value={item.color_primary} onChange={e => setItem({...item, color_primary: e.target.value})} style={inputStyle} required>{COLORS.map(c => <option key={c} value={c}>{c}</option>)}</select>
+            <select value={item.material} onChange={e => setItem({...item, material: e.target.value})} style={inputStyle}>{MATERIALS.map(c => <option key={c} value={c}>{c}</option>)}</select>
+            <input placeholder="Цена (₽) *" type="number" value={item.price} onChange={e => setItem({...item, price: e.target.value})} style={inputStyle} required />
             
-            <div style={{ marginBottom: '15px', borderLeft: '3px solid #00e6b8', paddingLeft: '10px' }}>
-              <p style={{ margin: '0 0 5px 0', fontSize: '12px', color: '#00e6b8' }}>Дополнительно для ИИ</p>
-              
-              <select value={item.material} onChange={e => setItem({...item, material: e.target.value})} style={inputStyle}>
-                {MATERIALS.map(c => <option key={c} value={c}>{c}</option>)}
-              </select>
-
-              <select value={item.seasons} onChange={e => setItem({...item, seasons: e.target.value})} style={inputStyle}>
-                {SEASONS.map(c => <option key={c} value={c}>{c}</option>)}
-              </select>
-            </div>
-            
-            <div style={{ display: 'flex', gap: '10px' }}>
-              {editingId && (
-                <button type="button" onClick={handleCancelEdit} style={{...buttonStyle(false), flex: 1, background: '#333', color: '#fff'}}>Отмена</button>
-              )}
-              <button type="submit" disabled={loading} style={{...buttonStyle(loading), flex: 2}}>
-                {loading ? "Сохранение..." : (editingId ? "Обновить" : "Добавить в шкаф")}
-              </button>
+            <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
+              {editingId && <button type="button" onClick={() => {setItem(initialItemState); setEditingId(null)}} style={{...buttonStyle(false), flex: 1, background: '#333', color: '#fff'}}>Отмена</button>}
+              <button type="submit" disabled={loading} style={{...buttonStyle(loading), flex: 2}}>{loading ? "..." : (editingId ? "Обновить" : "В шкаф")}</button>
             </div>
           </form>
         </div>
@@ -449,7 +516,9 @@ function App() {
           {wardrobe.map(i => (
             <div key={i.id} style={{...itemCardStyle, position: 'relative', overflow: 'hidden'}}>
               {i.image_url && (
-                 <img src={i.image_url} alt="Вещь" style={{ width: '100%', height: '100px', objectFit: 'cover', borderRadius: '8px', marginBottom: '8px' }} />
+                 <div style={{ backgroundColor: '#f8f9fa', borderRadius: '8px', marginBottom: '8px', padding: '10px', display: 'flex', justifyContent: 'center' }}>
+                   <img src={i.image_url} alt="Вещь" style={{ width: '100%', height: '120px', objectFit: 'contain' }} />
+                 </div>
               )}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                 <span style={{ fontWeight: "bold" }}>{i.subcategory || i.category}</span>
