@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef } from "react";
+import imglyRemoveBackground from "@imgly/background-removal"; // НОВАЯ СТРОКА
 
 const API_URL = import.meta.env.VITE_API_URL || "https://ai-stylist-production-7f72.up.railway.app";
 
@@ -103,47 +105,54 @@ function App() {
   };
 
   // --- МАГИЯ: Распознавание вещи по фото ---
-  const handleItemPhotoSelect = (e) => {
+  const handleItemPhotoSelect = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
 
     setIsScanningItem(true);
     
-    const reader = new FileReader();
-    reader.readAsDataURL(file);
-    reader.onloadend = async () => {
-      const base64Image = reader.result;
-      
-      try {
-        const res = await fetch(`${API_URL}/api/auto-tag-item`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ imageBase64: base64Image })
-        });
-        
-        const data = await res.json();
-        
-        if (res.ok) {
-          setItem(prev => ({
-            ...prev,
-            category: data.item.category || prev.category,
-            subcategory: data.item.subcategory || prev.subcategory,
-            color_primary: data.item.color_primary || prev.color_primary,
-            material: data.item.material || prev.material,
-            seasons: data.item.seasons || prev.seasons,
-            image_url: data.imageUrl // Сохраняем ссылку из Supabase
-          }));
-          alert("✨ ИИ успешно распознал вещь!");
-        } else {
-          alert(`Ошибка: ${data.error}`);
+    try {
+      // 1. ВЫРЕЗАЕМ ФОН ПРЯМО В БРАУЗЕРЕ (0 рублей!)
+      const transparentBlob = await imglyRemoveBackground(file);
+
+      // 2. Переводим результат в Base64
+      const reader = new FileReader();
+      reader.readAsDataURL(transparentBlob);
+      reader.onloadend = async () => {
+        try {
+          // 3. Отправляем чистую картинку ИИ для распознавания параметров
+          const res = await fetch(`${API_URL}/api/auto-tag-item`, {
+            method: "POST", 
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ imageBase64: reader.result })
+          });
+          
+          const data = await res.json();
+          
+          if (res.ok) {
+            setItem(prev => ({ 
+              ...prev, 
+              category: data.item.category || prev.category, 
+              subcategory: data.item.subcategory || prev.subcategory, 
+              color_primary: data.item.color_primary || prev.color_primary, 
+              material: data.item.material || prev.material, 
+              seasons: data.item.seasons || prev.seasons, 
+              image_url: data.imageUrl 
+            }));
+            alert("✨ ИИ успешно распознал вещь и очистил фон!");
+          } else { alert(`Ошибка сервера: ${data.error}`); }
+        } catch (error) { 
+          console.error(error);
+          alert("Не удалось связаться с сервером ИИ."); 
+        } finally { 
+          setIsScanningItem(false); 
         }
-      } catch (error) {
-        console.error("Scan error:", error);
-        alert("Не удалось связаться с сервером для распознавания.");
-      } finally {
-        setIsScanningItem(false);
-      }
-    };
+      };
+    } catch (error) {
+      console.error("Ошибка удаления фона:", error);
+      alert("Не удалось удалить фон. Попробуйте загрузить фото меньшего размера.");
+      setIsScanningItem(false);
+    }
   };
 
   // --- CRUD: СОЗДАНИЕ И ОБНОВЛЕНИЕ ВЕЩИ ---
