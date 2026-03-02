@@ -55,6 +55,9 @@ function App() {
   const [personAnalysis, setPersonAnalysis] = useState("");
   const personPhotoRef = useRef(null);
 
+  const [isTryingOn, setIsTryingOn] = useState(false);
+  const [tryOnResult, setTryOnResult] = useState(null);
+
 
   useEffect(() => {
     const savedUser = localStorage.getItem("user");
@@ -351,16 +354,57 @@ const handleVoiceAdd = () => {
     } catch (err) { setAiVerdict("❌ Ошибка соединения с сервером."); } finally { setIsAnalyzing(false); }
   };
 
-  const handleGenerateOutfit = async (occasion) => {
-    setIsGenerating(true); setGeneratedOutfit(""); 
-    setTimeout(() => window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' }), 100);
+  // --- ГЕНЕРАЦИЯ ОБРАЗА ---
+  const handleGenerateOutfit = async (selectedOccasion) => {
+    setIsGenerating(true);
+    setGeneratedOutfit(null);
+    setTryOnResult(null); // Очищаем прошлую примерку
+    
     try {
       const res = await fetch(`${API_URL}/api/generate-outfit`, {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ occasion: occasion, wardrobe: token ? wardrobe : [], preferences: token ? preferences : [] }),
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ occasion: selectedOccasion, wardrobe, preferences: user?.style_preferences || [] })
       });
       const data = await res.json();
-      if (res.ok) { setGeneratedOutfit(data.outfit); } else { setGeneratedOutfit(`❌ Ошибка: ${data.error}`); }
-    } catch (err) { setGeneratedOutfit("❌ Ошибка соединения."); } finally { setIsGenerating(false); }
+      
+      if (res.ok) setGeneratedOutfit(data); // Теперь тут объект {text, top_item_id, bottom_item_id}
+      else alert("Ошибка сервера: " + data.error);
+    } catch (error) { 
+      alert("Ошибка связи со стилистом."); 
+    } finally { 
+      setIsGenerating(false); 
+    }
+  };
+
+  // --- МАГИЯ: ЗАПУСК ПРИМЕРОЧНОЙ ---
+  const handleTryOn = async (itemId) => {
+    // Ищем вещь в шкафу, чтобы взять её картинку
+    const item = wardrobe.find(i => i.id === itemId);
+    if (!item || !item.image_url) {
+      return alert("У этой вещи нет фотографии (или фон не был удален)!");
+    }
+
+    setIsTryingOn(true);
+    try {
+      const res = await fetch(`${API_URL}/api/try-on`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ garmentUrl: item.image_url })
+      });
+      
+      const data = await res.json();
+      
+      if (res.ok) {
+        setTryOnResult(data.resultUrl);
+      } else {
+        alert(data.error || "Ошибка примерки. Возможно, вы не загрузили свое фото в Профиле.");
+      }
+    } catch (error) {
+      alert("Сервер Hugging Face сейчас перегружен. Попробуйте еще раз через минуту!");
+    } finally {
+      setIsTryingOn(false);
+    }
   };
 
   const renderHome = () => (
@@ -450,7 +494,40 @@ const handleVoiceAdd = () => {
               <span style={{ color: '#00e6b8', fontWeight: 'bold' }}>ИИ-стилист собирает капсулу...</span>
             </div>
           ) : (
-            <div style={{ fontSize: '14px', color: '#fff', whiteSpace: 'pre-wrap', lineHeight: '1.6' }}>{generatedOutfit}</div>
+            <>
+              {/* Текст от ИИ */}
+              <div style={{ fontSize: '14px', color: '#fff', whiteSpace: 'pre-wrap', lineHeight: '1.6' }}>
+                {generatedOutfit.text || generatedOutfit}
+              </div>
+
+              {/* Кнопка примерки (показываем, если ИИ выбрал верх из шкафа и у него есть фото) */}
+              {generatedOutfit.top_item_id && wardrobe.find(i => i.id === generatedOutfit.top_item_id)?.image_url && (
+                <div style={{ marginTop: '20px', padding: '15px', background: '#111', borderRadius: '8px', textAlign: 'center' }}>
+                  <p style={{ margin: '0 0 10px 0', fontSize: '12px', color: '#aaa' }}>
+                    Хотите увидеть, как эта вещь сидит на вас?
+                  </p>
+                  <button 
+                    onClick={() => handleTryOn(generatedOutfit.top_item_id)}
+                    disabled={isTryingOn}
+                    style={{
+                      background: isTryingOn ? '#555' : '#00e6b8', 
+                      color: isTryingOn ? '#aaa' : '#000', 
+                      border: 'none', borderRadius: '8px', padding: '12px', width: '100%', fontSize: '14px', fontWeight: 'bold', cursor: isTryingOn ? 'not-allowed' : 'pointer', transition: '0.3s'
+                    }}
+                  >
+                    {isTryingOn ? "⏳ ИИ шьет одежду (около 30-40 сек)..." : "👕 Примерить этот верх на себя"}
+                  </button>
+                </div>
+              )}
+
+              {/* Результат примерки (Фото) */}
+              {tryOnResult && (
+                <div style={{ marginTop: '20px', textAlign: 'center' }}>
+                  <h4 style={{ margin: '0 0 10px 0', color: '#fff' }}>📸 Готово! Вот как это выглядит:</h4>
+                  <img src={tryOnResult} alt="Результат примерки" style={{ width: '100%', borderRadius: '12px', border: '2px solid #00e6b8' }} />
+                </div>
+              )}
+            </>
           )}
         </div>
       )}
@@ -599,7 +676,7 @@ const handleVoiceAdd = () => {
                     body: JSON.stringify({ imageBase64: reader.result })
                   });
                   const data = await res.json();
-                  if(res.ok) setPersonAnalysis(data.analysis);
+                  if(res.ok) setPersonAnalysis(data.user.style_analysis);
                   else alert("Ошибка сервера: " + data.error);
                 } catch(err) { alert("Ошибка соединения с ИИ"); }
                 finally { setIsAnalyzingPerson(false); }
