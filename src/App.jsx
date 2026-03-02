@@ -29,6 +29,7 @@ function App() {
   const [uploadedLook, setUploadedLook] = useState(null);
   const [activeStory, setActiveStory] = useState(null); 
   const [favorites, setFavorites] = useState([]); 
+  const recognitionRef = useRef(null);
 
   const [imageBase64, setImageBase64] = useState(null); 
   const [isAnalyzing, setIsAnalyzing] = useState(false); 
@@ -107,9 +108,15 @@ function App() {
     } catch (err) { console.error("Fetch error:", err); }
   };
 
-// --- МАГИЯ: ДОБАВЛЕНИЕ ГОЛОСОМ ---
+// --- МАГИЯ: ДОБАВЛЕНИЕ ГОЛОСОМ (С РУЧНЫМ УПРАВЛЕНИЕМ) ---
 const handleVoiceAdd = () => {
-  // Проверяем поддержку микрофона браузером
+  // 1. Если мы УЖЕ слушаем, то по клику ОСТАНАВЛИВАЕМ запись и запускаем ИИ
+  if (isListening && recognitionRef.current) {
+    recognitionRef.current.stop();
+    return; // Выходим, дальше сработает событие onresult
+  }
+
+  // 2. Иначе начинаем слушать
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SpeechRecognition) {
     alert("Ваш браузер не поддерживает голосовой ввод. Попробуйте Chrome или Safari.");
@@ -117,7 +124,8 @@ const handleVoiceAdd = () => {
   }
 
   const recognition = new SpeechRecognition();
-  recognition.lang = 'ru-RU'; // Русский язык
+  recognitionRef.current = recognition; // Сохраняем микрофон в память
+  recognition.lang = 'ru-RU'; 
   recognition.interimResults = false;
   
   recognition.onstart = () => setIsListening(true);
@@ -125,15 +133,17 @@ const handleVoiceAdd = () => {
   recognition.onerror = (event) => {
     console.error("Speech error", event);
     setIsListening(false);
-    alert("Ошибка микрофона. Убедитесь, что вы разрешили доступ к микрофону.");
+    // Игнорируем системную ошибку "aborted", когда мы сами жмем Стоп
+    if (event.error !== 'aborted') { 
+      alert("Ошибка микрофона. Убедитесь, что вы разрешили доступ.");
+    }
   };
   
   recognition.onend = () => setIsListening(false);
 
-  // Когда пользователь замолчал, обрабатываем текст
   recognition.onresult = async (event) => {
     const transcript = event.results[0][0].transcript;
-    setIsScanningItem(true); // Включаем "⏳ Думает..."
+    setIsScanningItem(true); 
     
     try {
       const res = await fetch(`${API_URL}/api/parse-voice`, {
@@ -147,10 +157,7 @@ const handleVoiceAdd = () => {
       if (res.ok && data.items && data.items.length > 0) {
         const itemNames = data.items.map(i => `${i.color_primary} ${i.subcategory}`).join(', ');
         
-        // Спрашиваем пользователя перед добавлением
-        if (window.confirm(`Вы сказали: "${transcript}"\n\nИИ распознал ${data.items.length} вещи:\n${itemNames}.\n\nДобавить их все в гардероб?`)) {
-          
-          // Массово сохраняем вещи в БД
+        if (window.confirm(`Вы сказали: "${transcript}"\n\nИИ распознал:\n${itemNames}.\n\nДобавить в гардероб?`)) {
           for (const found of data.items) {
             const payload = {
               category: found.category || "Верх",
@@ -161,15 +168,15 @@ const handleVoiceAdd = () => {
               purchase_price: 0,
               seasons: [found.seasons || "Мультисезон"],
               occasions: [],
-              image_url: null // При добавлении голосом картинки нет, ее можно добавить позже
+              image_url: null 
             };
             await fetch(`${API_URL}/wardrobe`, {
               method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
               body: JSON.stringify(payload)
             });
           }
-          fetchWardrobe(); // Обновляем шкаф
-          alert("✅ Все вещи добавлены в шкаф!");
+          fetchWardrobe(); 
+          alert("✅ Вещи добавлены!");
         }
       } else {
         alert("ИИ не смог найти одежду в вашем тексте.");
@@ -181,7 +188,7 @@ const handleVoiceAdd = () => {
     }
   };
 
-  recognition.start(); // Включаем запись
+  recognition.start(); 
 };
 
   // --- МАГИЯ: Распознавание вещи по фото ---
@@ -488,7 +495,7 @@ const handleVoiceAdd = () => {
               <button 
                 type="button" 
                 onClick={handleVoiceAdd} 
-                disabled={isScanningItem || isListening} 
+                disabled={isScanningItem} 
                 style={{ background: isListening ? '#ff4d4d' : '#333', color: '#fff', border: 'none', borderRadius: '8px', padding: '8px 12px', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer', transition: '0.3s' }}
               >
                 {isListening ? "🔴 Слушаю..." : "🎙️ Голос"}
