@@ -54,6 +54,7 @@ function App() {
   const [isAnalyzingPerson, setIsAnalyzingPerson] = useState(false);
   const [personAnalysis, setPersonAnalysis] = useState("");
   const personPhotoRef = useRef(null);
+  const [personImageBase64, setPersonImageBase64] = useState(null);
 
   const [isTryingOn, setIsTryingOn] = useState(false);
   const [tryOnResult, setTryOnResult] = useState(null);
@@ -407,6 +408,51 @@ const handleVoiceAdd = () => {
     }
   };
 
+  // --- ВЫБОР ФОТО ДЛЯ ПРОФИЛЯ (БЕЗ ОТПРАВКИ) ---
+  const handlePersonPhotoSelect = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    
+    setPersonPhoto(URL.createObjectURL(file));
+    setPersonAnalysis(""); // Очищаем прошлый анализ
+    setPersonImageBase64(null);
+    
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onloadend = () => {
+      setPersonImageBase64(reader.result); // Сохраняем базу, но ждем клика по кнопке
+    };
+  };
+
+  // --- ОТПРАВКА ФОТО НА АНАЛИЗ ИИ ---
+  const handleAnalyzePerson = async () => {
+    if (!personImageBase64) return;
+    setIsAnalyzingPerson(true);
+    
+    try {
+      const res = await fetch(`${API_URL}/api/analyze-person`, {
+        method: "POST", 
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ imageBase64: personImageBase64 })
+      });
+      
+      const data = await res.json();
+      
+      if (res.ok && data.user) {
+        setPersonAnalysis(data.user.style_analysis);
+        // Обновляем глобального юзера, чтобы результат сохранился в приложении!
+        setUser(data.user);
+        localStorage.setItem("user", JSON.stringify(data.user));
+      } else {
+        alert("Ошибка сервера: " + (data.error || "Неизвестная ошибка"));
+      }
+    } catch (err) {
+      alert("Ошибка соединения с ИИ");
+    } finally {
+      setIsAnalyzingPerson(false);
+    }
+  };
+
   const renderHome = () => (
     <div style={contentStyle}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
@@ -646,83 +692,90 @@ const handleVoiceAdd = () => {
 
     return (
       <div style={contentStyle}>
-      <h2>Профиль</h2>
+        <h2>Профиль</h2>
 
-      {token ? (
-        <>
-          {/* НОВЫЙ БЛОК: АНАЛИЗ ВНЕШНОСТИ (STYLE ID) */}
-          <div style={{...cardStyle, border: '1px solid #00e6b8'}}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '15px', marginBottom: '15px' }}>
-              <div style={{ fontSize: '35px' }}>🧍‍♀️</div>
-              <div>
-                <h3 style={{ margin: '0 0 5px 0' }}>Мой Style ID</h3>
-                <p style={{ margin: 0, fontSize: '12px', opacity: 0.8 }}>Узнай свой цветотип и тип фигуры</p>
+        {token ? (
+          <>
+            {/* БЛОК: АНАЛИЗ ВНЕШНОСТИ (STYLE ID) */}
+            <div style={{...cardStyle, border: '1px solid #00e6b8'}}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '15px', marginBottom: '15px' }}>
+                <div style={{ fontSize: '35px' }}>🧍‍♀️</div>
+                <div>
+                  <h3 style={{ margin: '0 0 5px 0' }}>Мой Style ID</h3>
+                  <p style={{ margin: 0, fontSize: '12px', opacity: 0.8 }}>Узнай свой цветотип и тип фигуры</p>
+                </div>
               </div>
+
+              <input type="file" accept="image/*" ref={personPhotoRef} onChange={handlePersonPhotoSelect} style={{ display: 'none' }} />
+
+              {/* 1. ЕСЛИ НЕТ ФОТО И НЕТ СОХРАНЕННОГО РЕЗУЛЬТАТА В БАЗЕ */}
+              {!personPhoto && !user?.style_analysis && (
+                <>
+                  <p style={{ fontSize: '13px', opacity: 0.8, marginBottom: '15px', lineHeight: '1.5' }}>
+                    Загрузите фото во весь рост (желательно при дневном свете и в облегающей одежде), чтобы ИИ-стилист определил ваши идеальные цвета и фасоны.
+                  </p>
+                  <button onClick={() => personPhotoRef.current.click()} style={{...buttonStyle(false), width: '100%'}}>
+                    📸 Загрузить фото фигуры
+                  </button>
+                </>
+              )}
+
+              {/* 2. ЕСЛИ У ЮЗЕРА УЖЕ ЕСТЬ РЕЗУЛЬТАТ В БАЗЕ (Показываем сразу!) */}
+              {!personPhoto && user?.style_analysis && (
+                <div style={{ animation: 'fadeIn 0.5s' }}>
+                  {user?.vton_image && (
+                    <img src={user.vton_image} alt="Моя фигура" style={{ width: '100%', borderRadius: '12px', marginBottom: '15px', maxHeight: '400px', objectFit: 'cover' }} />
+                  )}
+                  <div style={{ fontSize: '14px', color: '#fff', whiteSpace: 'pre-wrap', lineHeight: '1.6', background: 'rgba(0,0,0,0.3)', padding: '15px', borderRadius: '12px', border: '1px solid #333' }}>
+                    {user.style_analysis}
+                  </div>
+                  <button onClick={() => personPhotoRef.current.click()} style={{...buttonStyle(false), width: '100%', marginTop: '15px', background: '#333', color: '#fff'}}>
+                    🔄 Обновить фото и Style ID
+                  </button>
+                </div>
+              )}
+
+              {/* 3. ЕСЛИ ЗАГРУЗИЛИ НОВОЕ ФОТО (ПРЕВЬЮ И КНОПКА ОТПРАВКИ) */}
+              {personPhoto && (
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                  <img src={personPhoto} alt="Превью" style={{ width: '100%', borderRadius: '12px', marginBottom: '15px', maxHeight: '400px', objectFit: 'cover' }} />
+
+                  {/* Кнопки до отправки */}
+                  {!isAnalyzingPerson && !personAnalysis && (
+                    <div style={{ display: 'flex', gap: '10px', width: '100%' }}>
+                      <button onClick={() => { setPersonPhoto(null); setPersonImageBase64(null); }} style={{...buttonStyle(false), flex: 1, background: '#333', color: '#fff'}}>Отмена</button>
+                      <button onClick={handleAnalyzePerson} style={{...buttonStyle(false), flex: 2}}>✨ Отправить ИИ</button>
+                    </div>
+                  )}
+
+                  {/* Лоадер */}
+                  {isAnalyzingPerson && <span style={{ color: '#00e6b8', fontWeight: 'bold', margin: '15px 0', textAlign: 'center' }}>ИИ снимает мерки и подбирает палитру... ⏳</span>}
+
+                  {/* Результат после генерации (показываем его до перезагрузки страницы) */}
+                  {personAnalysis && !isAnalyzingPerson && (
+                    <div style={{ width: '100%' }}>
+                      <div style={{ fontSize: '14px', color: '#fff', whiteSpace: 'pre-wrap', lineHeight: '1.6', background: 'rgba(0,0,0,0.3)', padding: '15px', borderRadius: '12px', border: '1px solid #333' }}>
+                        {personAnalysis}
+                      </div>
+                      <button onClick={() => { setPersonPhoto(null); setPersonAnalysis(""); setPersonImageBase64(null); }} style={{...buttonStyle(false), width: '100%', marginTop: '15px', background: '#333', color: '#fff'}}>
+                        Закрыть превью
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
-            <input type="file" accept="image/*" ref={personPhotoRef} onChange={async (e) => {
-              const file = e.target.files[0];
-              if(!file) return;
-              setPersonPhoto(URL.createObjectURL(file));
-              setPersonAnalysis("");
-              setIsAnalyzingPerson(true);
-
-              const reader = new FileReader();
-              reader.readAsDataURL(file);
-              reader.onloadend = async () => {
-                try {
-                  const res = await fetch(`${API_URL}/api/analyze-person`, {
-                    method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-                    body: JSON.stringify({ imageBase64: reader.result })
-                  });
-                  const data = await res.json();
-                  if(res.ok) setPersonAnalysis(data.user.style_analysis);
-                  else alert("Ошибка сервера: " + data.error);
-                } catch(err) { alert("Ошибка соединения с ИИ"); }
-                finally { setIsAnalyzingPerson(false); }
-              }
-            }} style={{ display: 'none' }} />
-
-            {!personPhoto && (
-              <>
-                <p style={{ fontSize: '13px', opacity: 0.8, marginBottom: '15px', lineHeight: '1.5' }}>
-                  Загрузите фото во весь рост (желательно при дневном свете и в облегающей одежде), чтобы ИИ-стилист определил ваши идеальные цвета и фасоны.
-                </p>
-                <button onClick={() => personPhotoRef.current.click()} style={{...buttonStyle(false), width: '100%'}}>
-                  📸 Загрузить фото фигуры
-                </button>
-              </>
-            )}
-
-            {personPhoto && (
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                <img src={personPhoto} alt="Моя фигура" style={{ width: '100%', borderRadius: '12px', marginBottom: '15px', maxHeight: '400px', objectFit: 'cover' }} />
-
-                {isAnalyzingPerson && <span style={{ color: '#00e6b8', fontWeight: 'bold', margin: '15px 0' }}>ИИ снимает мерки и подбирает палитру... ⏳</span>}
-
-                {personAnalysis && !isAnalyzingPerson && (
-                  <div style={{ width: '100%' }}>
-                    <div style={{ fontSize: '14px', color: '#fff', whiteSpace: 'pre-wrap', lineHeight: '1.6', background: 'rgba(0,0,0,0.3)', padding: '15px', borderRadius: '12px', border: '1px solid #333' }}>
-                      {personAnalysis}
-                    </div>
-                    <button onClick={() => { setPersonPhoto(null); setPersonAnalysis(""); }} style={{...buttonStyle(false), width: '100%', marginTop: '15px', background: '#333', color: '#fff'}}>
-                      🔄 Попробовать другое фото
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
+            <button onClick={handleLogout} style={{...logoutButtonStyle, marginTop: '20px'}}>Выйти из аккаунта</button>
+          </>
+        ) : (
+          <div>
+            <p>Войдите, чтобы создать свой профиль стиля.</p>
           </div>
+        )}
+      </div>
+    );
 
-          <button onClick={() => { localStorage.clear(); setToken(null); setUser(null); setWardrobe([]); setActiveTab("home"); }} style={{...logoutButtonStyle, marginTop: '20px'}}>Выйти из аккаунта</button>
-        </>
-      ) : (
-        <div>
-          <p>Войдите, чтобы создать свой профиль стиля.</p>
-        </div>
-      )}
-    </div>
-  );
   };
 
   return (
