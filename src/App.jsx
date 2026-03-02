@@ -50,6 +50,10 @@ function App() {
 
   const [isListening, setIsListening] = useState(false);
   const [voiceText, setVoiceText] = useState("");
+  const [personPhoto, setPersonPhoto] = useState(null);
+  const [isAnalyzingPerson, setIsAnalyzingPerson] = useState(false);
+  const [personAnalysis, setPersonAnalysis] = useState("");
+  const personPhotoRef = useRef(null);
 
 
   useEffect(() => {
@@ -565,48 +569,83 @@ const handleVoiceAdd = () => {
 
     return (
       <div style={contentStyle}>
-        <h2>Профиль</h2>
-        {!token ? (
-          <div style={{ ...cardStyle, textAlign: 'center' }}>
-            <h3>Вход в систему</h3>
-            <p style={{ opacity: 0.7 }}>Синхронизируйте свой гардероб</p>
-            <div id="googleSignInDiv" style={{ display: 'flex', justifyContent: 'center', marginTop: '30px', minHeight: '40px' }}></div>
-          </div>
-        ) : (
-          <>
-            <div style={{ ...cardStyle, textAlign: 'center' }}>
-              {user?.picture && <img src={user.picture} alt="Avatar" style={{ width: '80px', borderRadius: '50%', marginBottom: '10px' }} />}
-              <h3>{user?.name}</h3>
-              <p style={{ opacity: 0.7 }}>{user?.email}</p>
-              <span style={tierBadgeStyle}>{user?.subscription_tier || 'FREE'} PLAN</span>
-              <div style={{ marginTop: '30px', borderTop: '1px solid #333', paddingTop: '20px' }}>
-                <button onClick={handleLogout} style={logoutButtonStyle}>Выйти из аккаунта</button>
+      <h2>Профиль</h2>
+
+      {token ? (
+        <>
+          {/* НОВЫЙ БЛОК: АНАЛИЗ ВНЕШНОСТИ (STYLE ID) */}
+          <div style={{...cardStyle, border: '1px solid #00e6b8'}}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '15px', marginBottom: '15px' }}>
+              <div style={{ fontSize: '35px' }}>🧍‍♀️</div>
+              <div>
+                <h3 style={{ margin: '0 0 5px 0' }}>Мой Style ID</h3>
+                <p style={{ margin: 0, fontSize: '12px', opacity: 0.8 }}>Узнай свой цветотип и тип фигуры</p>
               </div>
             </div>
 
-            <div style={cardStyle}>
-              <h3>Предпочтения по стилю</h3>
-              <p style={{ fontSize: '12px', opacity: 0.7, marginBottom: '15px' }}>ИИ будет опираться на этот выбор при подборе образов.</p>
-              <div style={gridStyle}>
-                {styleOptions.map(opt => {
-                  const isSelected = preferences.includes(opt.id);
-                  return (
-                    <div key={opt.id} onClick={() => toggleStyle(opt.id)} style={{ position: 'relative', borderRadius: '12px', overflow: 'hidden', cursor: 'pointer', border: isSelected ? '3px solid #00e6b8' : '3px solid transparent', transition: '0.2s' }}>
-                      <img src={opt.img} alt={opt.name} style={{ width: '100%', height: '120px', objectFit: 'cover', display: 'block', opacity: isSelected ? 1 : 0.6 }} />
-                      <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, background: 'linear-gradient(to top, rgba(0,0,0,0.9), transparent)', padding: '10px 5px 5px', fontSize: '12px', textAlign: 'center', fontWeight: 'bold' }}>{opt.name}</div>
-                      {isSelected && <div style={{ position: 'absolute', top: 5, right: 5, background: '#00e6b8', color: '#000', borderRadius: '50%', width: '24px', height: '24px', display: 'flex', justifyContent: 'center', alignItems: 'center', fontSize: '14px', fontWeight: 'bold' }}>✓</div>}
+            <input type="file" accept="image/*" ref={personPhotoRef} onChange={async (e) => {
+              const file = e.target.files[0];
+              if(!file) return;
+              setPersonPhoto(URL.createObjectURL(file));
+              setPersonAnalysis("");
+              setIsAnalyzingPerson(true);
+
+              const reader = new FileReader();
+              reader.readAsDataURL(file);
+              reader.onloadend = async () => {
+                try {
+                  const res = await fetch(`${API_URL}/api/analyze-person`, {
+                    method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                    body: JSON.stringify({ imageBase64: reader.result })
+                  });
+                  const data = await res.json();
+                  if(res.ok) setPersonAnalysis(data.analysis);
+                  else alert("Ошибка сервера: " + data.error);
+                } catch(err) { alert("Ошибка соединения с ИИ"); }
+                finally { setIsAnalyzingPerson(false); }
+              }
+            }} style={{ display: 'none' }} />
+
+            {!personPhoto && (
+              <>
+                <p style={{ fontSize: '13px', opacity: 0.8, marginBottom: '15px', lineHeight: '1.5' }}>
+                  Загрузите фото во весь рост (желательно при дневном свете и в облегающей одежде), чтобы ИИ-стилист определил ваши идеальные цвета и фасоны.
+                </p>
+                <button onClick={() => personPhotoRef.current.click()} style={{...buttonStyle(false), width: '100%'}}>
+                  📸 Загрузить фото фигуры
+                </button>
+              </>
+            )}
+
+            {personPhoto && (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                <img src={personPhoto} alt="Моя фигура" style={{ width: '100%', borderRadius: '12px', marginBottom: '15px', maxHeight: '400px', objectFit: 'cover' }} />
+
+                {isAnalyzingPerson && <span style={{ color: '#00e6b8', fontWeight: 'bold', margin: '15px 0' }}>ИИ снимает мерки и подбирает палитру... ⏳</span>}
+
+                {personAnalysis && !isAnalyzingPerson && (
+                  <div style={{ width: '100%' }}>
+                    <div style={{ fontSize: '14px', color: '#fff', whiteSpace: 'pre-wrap', lineHeight: '1.6', background: 'rgba(0,0,0,0.3)', padding: '15px', borderRadius: '12px', border: '1px solid #333' }}>
+                      {personAnalysis}
                     </div>
-                  )
-                })}
+                    <button onClick={() => { setPersonPhoto(null); setPersonAnalysis(""); }} style={{...buttonStyle(false), width: '100%', marginTop: '15px', background: '#333', color: '#fff'}}>
+                      🔄 Попробовать другое фото
+                    </button>
+                  </div>
+                )}
               </div>
-              <button onClick={handleSavePreferences} disabled={isSavingPrefs} style={{ ...buttonStyle(isSavingPrefs), width: '100%', marginTop: '20px' }}>
-                {isSavingPrefs ? "Сохранение..." : "Сохранить предпочтения"}
-              </button>
-            </div>
-          </>
-        )}
-      </div>
-    );
+            )}
+          </div>
+
+          <button onClick={() => { localStorage.clear(); setToken(null); setUser(null); setWardrobe([]); setActiveTab("home"); }} style={{...logoutButtonStyle, marginTop: '20px'}}>Выйти из аккаунта</button>
+        </>
+      ) : (
+        <div>
+          <p>Войдите, чтобы создать свой профиль стиля.</p>
+        </div>
+      )}
+    </div>
+  );
   };
 
   return (

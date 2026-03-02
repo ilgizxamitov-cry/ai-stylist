@@ -177,6 +177,59 @@ app.post('/api/parse-voice', authenticateToken, async (req, res) => {
     }
   });
 
+  // --- МАГИЯ 4: ОПРЕДЕЛЕНИЕ ТИПА ФИГУРЫ И СОХРАНЕНИЕ В ПРОФИЛЬ (ДЛЯ VTON) ---
+app.post('/api/analyze-person', authenticateToken, async (req, res) => {
+    try {
+      const { imageBase64 } = req.body;
+      const userId = req.user.id;
+      if (!imageBase64) return res.status(400).json({ error: "Нет картинки" });
+  
+      // 1. ИИ анализирует внешность
+      const prompt = `Ты — элитный персональный стилист. Внимательно изучи фото человека во весь рост.
+  Твоя задача — составить персональный "Style ID" (ДНК стиля) для этого клиента.
+  Определи и опиши:
+  1. 🎨 ЦВЕТОТИП: сезон (Зима, Весна, Лето, Осень). 3-4 идеальных цвета и 2 цвета, которых избегать.
+  2. 📐 ТИП ФИГУРЫ: тип (Песочные часы, Прямоугольник, Груша и т.д.).
+  3. 👗 ФАСОНЫ: 3 рекомендации по крою одежды.
+  Пиши структурированно, доброжелательно, используй эмодзи.`;
+  
+      const aiResponse = await openai.chat.completions.create({
+        model: "openai/gpt-4o-mini",
+        messages: [{ role: "user", content: [{ type: "text", text: prompt }, { type: "image_url", image_url: { url: imageBase64 } }] }],
+        max_tokens: 1000,
+      });
+      
+      const analysisText = aiResponse.choices[0].message.content;
+  
+      // 2. Сохраняем фото в Supabase (для будущей примерочной VTON)
+      const rawBase64 = imageBase64.replace(/^data:image\/\w+;base64,/, ""); 
+      const buffer = Buffer.from(rawBase64, 'base64');
+      const fileName = `vton_${userId}_${Date.now()}.png`;
+  
+      const { data: uploadData, error: uploadError } = await supabase
+        .storage.from('wardrobe_images') 
+        .upload(fileName, buffer, { contentType: 'image/png' });
+  
+      if (uploadError) throw uploadError;
+  
+      const { data: publicUrlData } = supabase.storage.from('wardrobe_images').getPublicUrl(fileName);
+      const vtonImageUrl = publicUrlData.publicUrl;
+  
+      // 3. Обновляем профиль пользователя в Базе Данных
+      const result = await pool.query(
+        `UPDATE users SET style_analysis = $1, vton_image = $2 WHERE id = $3 RETURNING *`,
+        [analysisText, vtonImageUrl, userId]
+      );
+  
+      // Возвращаем обновленного юзера на фронтенд
+      res.json({ user: result.rows[0] });
+  
+    } catch (error) {
+      console.error("Person analysis error:", error);
+      res.status(500).json({ error: "Ошибка анализа внешности" });
+    }
+  });
+
 // --- РОУТЫ БД ---
 app.post("/auth/google", async (req, res) => { /*...*/ 
   const { credential } = req.body;
