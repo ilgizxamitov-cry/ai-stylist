@@ -8,6 +8,7 @@ import jwt from "jsonwebtoken";
 import { OAuth2Client } from "google-auth-library";
 import pkg from "pg";
 import { createClient } from "@supabase/supabase-js";
+import { client } from "@gradio/client";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -67,24 +68,39 @@ app.post('/api/analyze', async (req, res) => {
 });
 
 app.post('/api/generate-outfit', async (req, res) => {
-  try {
-    const { occasion, wardrobe, preferences } = req.body;
-    let prompt = `Ты стилист. Собери современный образ для: "${occasion}".\n\n`;
-    if (preferences && preferences.length > 0) prompt += `Стиль клиента: ${preferences.join(', ')}.\n\n`;
-    if (wardrobe && wardrobe.length > 0) {
-      const wText = wardrobe.map(w => `${w.subcategory} (цвет: ${w.color_primary})`).join('; ');
-      prompt += `ОБЯЗАТЕЛЬНО используй вещи клиента: [${wText}].\n\n`;
-    } else { prompt += `Предложи капсулу из базовых вещей.\n\n`; }
-    prompt += `Ответ структурируй: 💡 Концепция, 👕 Верх, 👖 Низ, 👟 Обувь.`;
-
-    const response = await openai.chat.completions.create({
-      model: "openai/gpt-4o-mini", 
-      messages: [{ role: "user", content: prompt }],
-      max_tokens: 800,
-    });
-    res.json({ outfit: response.choices[0].message.content });
-  } catch (error) { res.status(500).json({ error: "Ошибка генерации" }); }
-});
+    try {
+      const { occasion, wardrobe, preferences } = req.body;
+      let prompt = `Ты персональный стилист. Собери образ для: "${occasion}".\n`;
+      if (preferences && preferences.length > 0) prompt += `Стиль клиента: ${preferences.join(', ')}.\n`;
+      
+      if (wardrobe && wardrobe.length > 0) {
+        // Передаем ИИ список вещей ВМЕСТЕ С ИХ ID
+        const wText = wardrobe.map(w => `[ID:${w.id}] ${w.subcategory} (цвет: ${w.color_primary})`).join('; ');
+        prompt += `ОБЯЗАТЕЛЬНО используй вещи клиента из этого списка: ${wText}.\n\n`;
+      } else {
+        prompt += `Предложи капсулу из базовых вещей.\n\n`;
+      }
+  
+      prompt += `Верни ответ СТРОГО в формате JSON:
+  {
+    "text": "Твой красивый текст с описанием образа, поделенный на абзацы с эмодзи",
+    "top_item_id": число (ID выбранного верха из списка, или null если нет),
+    "bottom_item_id": число (ID выбранного низа из списка, или null)
+  }`;
+  
+      const response = await openai.chat.completions.create({
+        model: "openai/gpt-4o-mini", 
+        messages: [{ role: "user", content: prompt }],
+        max_tokens: 800,
+      });
+  
+      let cleanJson = response.choices[0].message.content.replace(/```json/g, '').replace(/```/g, '').trim();
+      res.json(JSON.parse(cleanJson));
+    } catch (error) { 
+      console.error("Outfit error:", error);
+      res.status(500).json({ error: "Ошибка генерации" }); 
+    }
+  });
 
 // --- БЕСПЛАТНАЯ МАГИЯ: РАСПОЗНАВАНИЕ И СОХРАНЕНИЕ ---
 app.post('/api/auto-tag-item', authenticateToken, async (req, res) => {
@@ -227,6 +243,45 @@ app.post('/api/analyze-person', authenticateToken, async (req, res) => {
     } catch (error) {
       console.error("Person analysis error:", error);
       res.status(500).json({ error: "Ошибка анализа внешности" });
+    }
+  });
+
+  // --- МАГИЯ 5: ВИРТУАЛЬНАЯ ПРИМЕРОЧНАЯ (HUGGING FACE) ---
+app.post('/api/try-on', authenticateToken, async (req, res) => {
+    try {
+      const { garmentUrl } = req.body; 
+      const userId = req.user.id;
+  
+      if (!garmentUrl) return res.status(400).json({ error: "Нет ссылки на вещь" });
+  
+      // 1. Достаем фото юзера из базы данных (которое мы сохраняли в Профиле)
+      const userRes = await pool.query(`SELECT vton_image FROM users WHERE id = $1`, [userId]);
+      const personImageUrl = userRes.rows[0]?.vton_image;
+  
+      if (!personImageUrl) {
+        return res.status(400).json({ error: "Сначала загрузите свое фото во весь рост во вкладке Профиль!" });
+      }
+  
+      // 2. Отправляем запрос на бесплатный сервер Hugging Face (модель IDM-VTON)
+      const hfClient = await client("yisol/IDM-VTON");
+      
+      const result = await hfClient.predict("/tryon", [
+        { background: personImageUrl, layers: [], composite: null }, // dict: Фото человека
+        garmentUrl, // Фото одежды (чистое, без фона)
+        "Upper body clothing", // Описание
+        true, // Авто-кроп
+        true, // Авто-кроп и ресайз
+        30,   // Качество (denoise steps)
+        42    // Seed
+      ]);
+  
+      // 3. Получаем готовую картинку!
+      const generatedImageUrl = result.data[0].url;
+      res.json({ resultUrl: generatedImageUrl });
+  
+    } catch (error) {
+      console.error("VTON error:", error);
+      res.status(500).json({ error: "Сервер примерки сейчас перегружен. Попробуйте через минуту!" });
     }
   });
 
