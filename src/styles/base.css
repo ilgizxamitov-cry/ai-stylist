@@ -1,0 +1,249 @@
+/* =========================================================
+   BASE — сброс, типографика, утилиты раскладки
+   ========================================================= */
+
+*,
+*::before,
+*::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: none;
+}
+
+body {
+  font-family: var(--font-sans);
+  font-size: var(--text-md);
+  line-height: var(--leading-normal);
+  font-weight: var(--weight-regular);
+  color: var(--color-text);
+  background-color: var(--color-bg-subtle);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  -webkit-tap-highlight-color: transparent;
+}
+
+#root {
+  width: 100%;
+  min-height: 100vh;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  font-weight: var(--weight-bold);
+  letter-spacing: var(--tracking-tight);
+  line-height: var(--leading-tight);
+  color: var(--color-text);
+}
+
+h1 {
+  font-size: var(--text-3xl);
+}
+h2 {
+  font-size: var(--text-2xl);
+}
+h3 {
+  font-size: var(--text-lg);
+}
+h4 {
+  font-size: var(--text-md);
+}
+
+a {
+  color: var(--color-info);
+  font-weight: var(--weight-semibold);
+  text-decoration: none;
+}
+
+button,
+input,
+select,
+textarea {
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+}
+
+img {
+  display: block;
+  max-width: 100%;
+}
+
+:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+  border-radius: var(--radius-sm);
+}
+
+/* ---------- Утилиты типографики ---------- */
+.text-secondary {
+  color: var(--color-text-secondary);
+}
+.text-tertiary {
+  color: var(--color-text-tertiary);
+}
+.text-sm {
+  font-size: var(--text-sm);
+}
+.text-xs {
+  font-size: var(--text-xs);
+}
+.text-lg {
+  font-size: var(--text-lg);
+}
+.text-semibold {
+  font-weight: var(--weight-semibold);
+}
+.text-bold {
+  font-weight: var(--weight-bold);
+}
+.text-relaxed {
+  line-height: var(--leading-relaxed);
+}
+.text-pretty {
+  text-wrap: pretty;
+}
+
+/* ---------- Утилиты раскладки (flex-first) ---------- */
+.stack {
+  display: flex;
+  flex-direction: column;
+}
+.row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+}
+.row-between {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.wrap {
+  flex-wrap: wrap;
+}
+.center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.grow {
+  flex: 1;
+}
+.gap-1 {
+  gap: var(--space-1);
+}
+.gap-2 {
+  gap: var(--space-2);
+}
+.gap-3 {
+  gap: var(--space-3);
+}
+.gap-4 {
+  gap: var(--space-4);
+}
+.gap-5 {
+  gap: var(--space-5);
+}
+.gap-6 {
+  gap: var(--space-6);
+}
+.full {
+  width: 100%;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ---------- Скрытый скроллбар для горизонтальных лент ---------- */
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* ---------- Анимации ---------- */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+@keyframes pulse-ring {
+  0% {
+    box-shadow: 0 0 0 0 rgba(230, 0, 35, 0.4);
+  }
+  70% {
+    box-shadow: 0 0 0 12px rgba(230, 0, 35, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(230, 0, 35, 0);
+  }
+}
+
+.animate-fade-in {
+  animation: fade-in var(--duration-base) var(--ease-out);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
